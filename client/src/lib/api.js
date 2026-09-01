@@ -141,11 +141,31 @@ export const sessionApi = {
   close: (id, data) => request("PUT", `/sessions/${id}/close`, data),
 };
 
-// ── Kitchen ───────────────────────────────────────────────
+// ── Kitchen ─────────────────────────────────────────────────────────
 export const kitchenApi = {
-  getAll: () => request("GET", "/kitchen/orders"),
+  // date: 'YYYY-MM-DD' string (optional, defaults to today on the server)
+  getAll:       (date) => request("GET", date ? `/kitchen/orders?date=${date}` : "/kitchen/orders"),
+  getStats:     (date) => request("GET", date ? `/kitchen/stats?date=${date}` : "/kitchen/stats"),
   updateStatus: (id, status) => request("PUT", `/kitchen/orders/${id}/status`, { status }),
-  complete: (id) => request("PUT", `/kitchen/orders/${id}/complete`),
+  complete:     (id) => request("PUT", `/kitchen/orders/${id}/complete`),
+};
+
+// ── Inventory ─────────────────────────────────────────────
+export const inventoryApi = {
+  // Ingredients
+  getIngredients:    ()         => request("GET",    "/inventory/ingredients"),
+  getIngredient:     (id)       => request("GET",    `/inventory/ingredients/${id}`),
+  createIngredient:  (data)     => request("POST",   "/inventory/ingredients", data),
+  updateIngredient:  (id, data) => request("PUT",    `/inventory/ingredients/${id}`, data),
+  deleteIngredient:  (id)       => request("DELETE", `/inventory/ingredients/${id}`),
+  // Stock
+  getLowStock:       ()         => request("GET",    "/inventory/low-stock"),
+  adjustStock:       (data)     => request("POST",   "/inventory/adjust", data),
+  recordWastage:     (data)     => request("POST",   "/inventory/wastage", data),
+  getLedger:         (params)   => request("GET",    `/inventory/ledger${params ? `?${new URLSearchParams(params)}` : ""}`),
+  // Recipe
+  getRecipe:         (productId)         => request("GET",  `/inventory/products/${productId}/recipe`),
+  setRecipe:         (productId, items)  => request("POST", `/inventory/products/${productId}/recipe`, { items }),
 };
 
 // Save and retrieve auth token

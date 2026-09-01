@@ -1,4 +1,4 @@
-﻿import {
+import {
   registerUser, loginUser, getUserById, getAllUsers, updateUser, deleteUser,
   forgotPassword, resetPassword, getPendingUsers, approveUser, rejectUser,
 } from '../services/auth.service.js';
@@ -16,7 +16,7 @@ export const register = async (req, res) => {
 export const login = async (req, res) => {
   try {
     const { email, password, rememberMe } = req.body;
-    const result = await loginUser(email, password, rememberMe);
+    const result = await loginUser(email, password, rememberMe, req);
     return successResponse(res, result, 'Login successful');
   } catch (error) {
     const status = error.message.includes('approval') || error.message.includes('rejected') ? 403 : 401;
@@ -57,7 +57,7 @@ export const approveUserHandler = async (req, res) => {
   try {
     const { id } = req.params;
     const { role } = req.body;
-    const user = await approveUser(id, role);
+    const user = await approveUser(id, role, req.userId, req);
     return successResponse(res, user, 'User approved successfully');
   } catch (error) {
     return errorResponse(res, error.message, 400, error);
@@ -67,7 +67,7 @@ export const approveUserHandler = async (req, res) => {
 export const rejectUserHandler = async (req, res) => {
   try {
     const { id } = req.params;
-    const user = await rejectUser(id);
+    const user = await rejectUser(id, req.userId, req);
     return successResponse(res, user, 'User rejected');
   } catch (error) {
     return errorResponse(res, error.message, 400, error);

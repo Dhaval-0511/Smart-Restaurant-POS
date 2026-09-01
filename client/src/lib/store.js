@@ -10,15 +10,45 @@ import socket from "./socket.js";
 const uid = () => Math.random().toString(36).slice(2, 10);
 const pad = (n) => String(n).padStart(5, "0");
 
+// Role display name map — DB role → UI label
+const ROLE_DISPLAY = {
+  SUPER_ADMIN:       'Super Admin',
+  BRANCH_MANAGER:    'Branch Manager',
+  INVENTORY_MANAGER: 'Inventory Manager',
+  CASHIER:           'Cashier',
+  KITCHEN_STAFF:     'Kitchen Staff',
+  // Legacy values (kept during data migration)
+  ADMIN:             'Super Admin',
+  EMPLOYEE:          'Cashier',
+};
+
+// Roles that can access the Admin dashboard
+const ADMIN_ACCESS_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ADMIN'];
+// Roles that can access Inventory management
+const INV_ACCESS_ROLES   = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'INVENTORY_MANAGER', 'ADMIN'];
+// Roles that can access POS terminal
+const POS_ACCESS_ROLES   = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'CASHIER', 'ADMIN', 'EMPLOYEE'];
+// Roles that can access KDS
+const KDS_ACCESS_ROLES   = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'KITCHEN_STAFF', 'ADMIN', 'EMPLOYEE'];
+
 // ─── Normalise DB rows to the shape the UI expects ───────────
 function normaliseUser(u) {
+  const dbRole = u.role || 'CASHIER';
   return {
     id: u.id,
     name: u.name,
     email: u.email,
-    role: u.role === "ADMIN" ? "User" : "Employee",
+    // Keep raw DB role for permission checks
+    role: dbRole,
+    // Human-readable display label
+    roleLabel: ROLE_DISPLAY[dbRole] || dbRole,
+    // Permission flags for UI gating
+    canAccessAdmin: ADMIN_ACCESS_ROLES.includes(dbRole),
+    canAccessInventory: INV_ACCESS_ROLES.includes(dbRole),
+    canAccessPos: POS_ACCESS_ROLES.includes(dbRole),
+    canAccessKds: KDS_ACCESS_ROLES.includes(dbRole),
     active: !u.isArchived,
-    password: "", // never returned from server
+    password: '', // never returned from server
   };
 }
 function normaliseProduct(p) {
@@ -393,6 +423,10 @@ export const useStore = create(
         })),
 
       addLine: (orderId, productId) => {
+        // Guard: never mutate a completed/paid order
+        const targetOrder = get().orders.find((x) => x.id === orderId);
+        if (!targetOrder || targetOrder.status === 'Paid' || targetOrder.status === 'Cancelled') return;
+
         const p = get().products.find((x) => x.id === productId);
         if (!p) return;
         set((s) => ({
@@ -408,6 +442,10 @@ export const useStore = create(
         get().recalcOrder(orderId);
       },
       setLineQty: (orderId, productId, qty) => {
+        // Guard: never mutate a completed/paid order
+        const targetOrder = get().orders.find((x) => x.id === orderId);
+        if (!targetOrder || targetOrder.status === 'Paid' || targetOrder.status === 'Cancelled') return;
+
         set((s) => ({
           orders: s.orders.map((o) => {
             if (o.id !== orderId) return o;
@@ -633,9 +671,9 @@ export const useStore = create(
         }
       },
 
-      fetchKds: async () => {
+      fetchKds: async (date = null) => {
         try {
-          const orders = await kitchenApi.getAll();
+          const orders = await kitchenApi.getAll(date);
           const groups = {};
 
           for (const item of orders) {
@@ -733,6 +771,9 @@ export const useStore = create(
         const ticket = get().kds.find((k) => k.id === ticketId);
         if (!ticket) return;
 
+        // Guard: a Completed ticket cannot be moved anywhere — it's done
+        if (ticket.stage === 'Completed') return;
+
         // Optimistically update local stage
         set((s) => ({
           kds: s.kds.map((k) => (k.id === ticketId ? { ...k, stage } : k)),
@@ -759,6 +800,10 @@ export const useStore = create(
       toggleKdsItem: async (ticketId, productId) => {
         const ticket = get().kds.find((k) => k.id === ticketId);
         if (!ticket) return;
+
+        // Guard: if the whole ticket is already Completed, items cannot be un-ticked
+        if (ticket.stage === 'Completed') return;
+
         const item = ticket.items.find((i) => i.productId === productId);
         if (!item) return;
 
@@ -777,17 +822,14 @@ export const useStore = create(
           if (nextDone) {
             await kitchenApi.complete(item.kitchenOrderId);
           } else {
+            // Un-ticking an item — revert to the ticket's current stage, never to COMPLETED
             const mapStageToDbStatus = (stg) => {
               if (stg === 'ToCook') return 'TO_COOK';
               if (stg === 'Preparing') return 'PREPARING';
-              if (stg === 'Completed') return 'COMPLETED';
-              return 'TO_COOK';
+              return 'TO_COOK'; // fallback — never re-send as COMPLETED
             };
             const dbStatus = mapStageToDbStatus(ticket.stage);
-            await kitchenApi.updateStatus(
-              item.kitchenOrderId,
-              dbStatus === 'COMPLETED' ? 'PREPARING' : dbStatus
-            );
+            await kitchenApi.updateStatus(item.kitchenOrderId, dbStatus);
           }
           await get().fetchKds();
         } catch (err) {

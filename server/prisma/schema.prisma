@@ -8,22 +8,37 @@ datasource db {
 }
 
 model User {
-  id                   String      @id @default(uuid())
+  id                   String          @id @default(uuid())
   name                 String
-  email                String      @unique
+  email                String          @unique
   password             String
-  role                 Role        @default(EMPLOYEE)
-  status               UserStatus  @default(APPROVED)
-  resetPasswordToken   String?     @unique
+  role                 Role            @default(CASHIER)
+  status               UserStatus      @default(APPROVED)
+  resetPasswordToken   String?         @unique
   resetPasswordExpires DateTime?
-  isArchived           Boolean     @default(false)
-  createdAt            DateTime    @default(now())
-  updatedAt            DateTime    @updatedAt
+  isArchived           Boolean         @default(false)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
   kitchenOrders        KitchenOrder[]
   orders               Order[]
   sessions             Session[]
+  auditLogs            AuditLog[]
+  stockLedgers         StockLedger[]
+  wastageRecords       WastageRecord[]
 
   @@map("users")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  action    String
+  details   String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("audit_logs")
 }
 
 model Category {
@@ -53,6 +68,7 @@ model Product {
   orderItems    OrderItem[]
   category      Category       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   promotions    Promotion[]
+  recipeItems   RecipeItem[]
 
   @@map("products")
 }
@@ -217,8 +233,15 @@ model KitchenOrder {
 }
 
 enum Role {
+  // Legacy values kept during migration — will be removed after data migration
   ADMIN
   EMPLOYEE
+  // SRS-aligned roles (Section 2.3)
+  SUPER_ADMIN
+  BRANCH_MANAGER
+  INVENTORY_MANAGER
+  CASHIER
+  KITCHEN_STAFF
 }
 
 enum UserStatus {
@@ -258,4 +281,74 @@ enum KitchenStatus {
   TO_COOK
   PREPARING
   COMPLETED
+}
+
+// ── Phase 2: Recipe & Ingredient Inventory ────────────────────────────────
+
+enum StockMovementType {
+  PURCHASE_RECEIPT
+  SALE_DEDUCTION
+  WASTAGE
+  MANUAL_ADJUSTMENT
+  RETURN
+}
+
+model Ingredient {
+  id             String          @id @default(uuid())
+  name           String          @unique
+  unitOfMeasure  String          // e.g. "kg", "g", "liter", "ml", "piece"
+  currentStock   Decimal         @default(0) @db.Decimal(10, 3)
+  minimumStock   Decimal         @default(0) @db.Decimal(10, 3)
+  costPerUnit    Decimal         @default(0) @db.Decimal(10, 2)
+  isPerishable   Boolean         @default(false)  // true = needs daily fresh procurement
+  shelfLifeDays  Int             @default(0)       // 0 = non-perishable/unlimited
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  recipeItems    RecipeItem[]
+  stockLedgers   StockLedger[]
+  wastageRecords WastageRecord[]
+
+  @@map("ingredients")
+}
+
+model RecipeItem {
+  id             String     @id @default(uuid())
+  productId      String
+  ingredientId   String
+  quantity       Decimal    @db.Decimal(10, 3) // Amount of ingredient per 1 unit of product
+  wastagePercent Decimal    @default(0) @db.Decimal(5, 2)
+  product        Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredient     Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, ingredientId])
+  @@map("recipe_items")
+}
+
+model StockLedger {
+  id             String            @id @default(uuid())
+  ingredientId   String
+  movementType   StockMovementType
+  quantityChange Decimal           @db.Decimal(10, 3) // Positive = IN, Negative = OUT
+  resultingStock Decimal           @db.Decimal(10, 3)
+  referenceId    String?           // OrderId, WastageId, etc.
+  notes          String?
+  recordedById   String?
+  createdAt      DateTime          @default(now())
+  ingredient     Ingredient        @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  recordedBy     User?             @relation(fields: [recordedById], references: [id])
+
+  @@map("stock_ledgers")
+}
+
+model WastageRecord {
+  id           String     @id @default(uuid())
+  ingredientId String
+  quantity     Decimal    @db.Decimal(10, 3)
+  reason       String
+  recordedById String
+  createdAt    DateTime   @default(now())
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  recordedBy   User       @relation(fields: [recordedById], references: [id])
+
+  @@map("wastage_records")
 }

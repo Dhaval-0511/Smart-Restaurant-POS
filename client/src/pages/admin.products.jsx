@@ -19,8 +19,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Pencil, Trash2, Loader2 } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Loader2, BookOpen } from "lucide-react";
 import { toast } from "sonner";
+import { inventoryApi } from "@/lib/api";
 
 const TAXES = [0, 5, 12, 18, 28];
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
@@ -61,8 +62,20 @@ export default function ProductsPage() {
   const [newCatName, setNewCatName] = useState("");
   const [catOpen, setCatOpen] = useState(false);
 
+  // Recipe Builder state
+  const [recipeOpen, setRecipeOpen] = useState(false);
+  const [recipeProduct, setRecipeProduct] = useState(null);
+  const [recipeItems, setRecipeItems] = useState([]);
+  const [allIngredients, setAllIngredients] = useState([]);
+  const [recipeSaving, setRecipeSaving] = useState(false);
+  const [recipeLoading, setRecipeLoading] = useState(false);
+
   useEffect(() => {
     fetchData();
+    // Load all ingredients for the recipe builder
+    inventoryApi.getIngredients().then((data) => {
+      setAllIngredients(Array.isArray(data) ? data : []);
+    }).catch(() => {});
   }, []);
 
   const fetchData = async () => {
@@ -206,7 +219,59 @@ export default function ProductsPage() {
     }
   };
 
+  const openRecipeBuilder = async (product) => {
+    setRecipeProduct(product);
+    setRecipeOpen(true);
+    setRecipeLoading(true);
+    try {
+      const items = await inventoryApi.getRecipe(product.id);
+      setRecipeItems(Array.isArray(items) ? items.map((ri) => ({
+        ingredientId: ri.ingredientId,
+        ingredientName: ri.ingredient?.name ?? "",
+        unit: ri.ingredient?.unitOfMeasure ?? "",
+        quantity: Number(ri.quantity),
+        wastagePercent: Number(ri.wastagePercent),
+      })) : []);
+    } catch {
+      setRecipeItems([]);
+    } finally {
+      setRecipeLoading(false);
+    }
+  };
 
+  const saveRecipe = async () => {
+    if (!recipeProduct) return;
+    setRecipeSaving(true);
+    try {
+      await inventoryApi.setRecipe(recipeProduct.id, recipeItems.map((ri) => ({
+        ingredientId: ri.ingredientId,
+        quantity: ri.quantity,
+        wastagePercent: ri.wastagePercent,
+      })));
+      toast.success("Recipe saved successfully");
+      setRecipeOpen(false);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setRecipeSaving(false);
+    }
+  };
+
+  const addRecipeRow = () => {
+    const first = allIngredients[0];
+    if (!first) { toast.error("No ingredients found — add some in Inventory first"); return; }
+    // Avoid duplicate ingredient
+    const used = new Set(recipeItems.map((r) => r.ingredientId));
+    const next = allIngredients.find((i) => !used.has(i.id));
+    if (!next) { toast.error("All ingredients already added"); return; }
+    setRecipeItems((prev) => [...prev, {
+      ingredientId: next.id,
+      ingredientName: next.name,
+      unit: next.unitOfMeasure,
+      quantity: 0,
+      wastagePercent: 0,
+    }]);
+  };
 
   return (
     <AdminShell title="Products">
@@ -286,6 +351,15 @@ export default function ProductsPage() {
                       <td className="p-3 text-right text-[#6F4E37]/80">{p.tax}%</td>
                       <td className="p-3 text-right">
                         <div className="flex gap-1 justify-end">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="Recipe Builder"
+                            onClick={() => openRecipeBuilder(p)}
+                            className="hover:bg-amber-50 text-amber-600/60 hover:text-amber-600 h-8 w-8 rounded-lg cursor-pointer"
+                          >
+                            <BookOpen className="w-4 h-4" />
+                          </Button>
                           <Button 
                             size="icon" 
                             variant="ghost" 
@@ -448,6 +522,116 @@ export default function ProductsPage() {
               className="bg-[#6F4E37] hover:bg-[#6F4E37]/90 text-white flex-1 font-bold cursor-pointer rounded-xl"
             >
               Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Recipe Builder Dialog ── */}
+      <Dialog open={recipeOpen} onOpenChange={(v) => { if (!v) setRecipeOpen(false); }}>
+        <DialogContent className="bg-white border border-[#6F4E37]/30 max-w-2xl rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-[#6F4E37] font-extrabold text-lg flex items-center gap-2">
+              <BookOpen className="w-5 h-5" />
+              Recipe Builder — {recipeProduct?.name}
+            </DialogTitle>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              Define ingredient quantities used per 1 unit of this product. Stock will be auto-deducted on sale.
+            </p>
+          </DialogHeader>
+
+          {recipeLoading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="w-7 h-7 animate-spin text-[#6F4E37]/40" />
+            </div>
+          ) : (
+            <div className="space-y-3 py-2 max-h-[55vh] overflow-y-auto pr-1">
+              {recipeItems.length === 0 && (
+                <div className="text-center py-8 text-zinc-400 text-sm font-semibold">
+                  No recipe items yet. Click "Add Ingredient" to start.
+                </div>
+              )}
+              {recipeItems.map((ri, idx) => (
+                <div key={idx} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center bg-[#FAF3E0]/40 border border-[#6F4E37]/15 rounded-2xl p-3">
+                  {/* Ingredient Selector */}
+                  <Select
+                    value={ri.ingredientId}
+                    onValueChange={(val) => {
+                      const ing = allIngredients.find((i) => i.id === val);
+                      setRecipeItems((prev) => prev.map((r, i) =>
+                        i === idx ? { ...r, ingredientId: val, ingredientName: ing?.name ?? "", unit: ing?.unitOfMeasure ?? "" } : r
+                      ));
+                    }}
+                  >
+                    <SelectTrigger className="rounded-xl border-[#6F4E37]/25 bg-white text-sm">
+                      <SelectValue placeholder="Select ingredient…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {allIngredients.map((ing) => (
+                        <SelectItem key={ing.id} value={ing.id}>
+                          {ing.name} ({ing.unitOfMeasure})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {/* Quantity */}
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      type="number" min="0.001" step="0.001"
+                      value={ri.quantity}
+                      onChange={(e) => setRecipeItems((prev) => prev.map((r, i) =>
+                        i === idx ? { ...r, quantity: Number(e.target.value) } : r
+                      ))}
+                      className="w-24 rounded-xl border-[#6F4E37]/25 text-sm text-center"
+                      placeholder="Qty"
+                    />
+                    <span className="text-xs text-[#6F4E37]/70 font-bold w-8 shrink-0">{ri.unit}</span>
+                  </div>
+
+                  {/* Wastage % */}
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number" min="0" max="100" step="0.5"
+                      value={ri.wastagePercent}
+                      onChange={(e) => setRecipeItems((prev) => prev.map((r, i) =>
+                        i === idx ? { ...r, wastagePercent: Number(e.target.value) } : r
+                      ))}
+                      className="w-20 rounded-xl border-[#6F4E37]/25 text-sm text-center"
+                      placeholder="0"
+                    />
+                    <span className="text-xs text-[#6F4E37]/70 font-bold shrink-0">% waste</span>
+                  </div>
+
+                  {/* Remove */}
+                  <button
+                    onClick={() => setRecipeItems((prev) => prev.filter((_, i) => i !== idx))}
+                    className="h-8 w-8 rounded-lg hover:bg-red-50 text-zinc-400 hover:text-red-500 flex items-center justify-center border border-transparent hover:border-red-200 transition cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+
+              <Button
+                variant="outline"
+                onClick={addRecipeRow}
+                className="w-full border-dashed border-[#6F4E37]/40 text-[#6F4E37] hover:bg-[#FAF3E0] rounded-xl cursor-pointer font-bold"
+              >
+                <Plus className="w-4 h-4 mr-1.5" /> Add Ingredient
+              </Button>
+            </div>
+          )}
+
+          <DialogFooter className="flex gap-2 pt-2 border-t border-[#6F4E37]/10">
+            <Button variant="outline" onClick={() => setRecipeOpen(false)}
+              className="border-[#6F4E37]/25 text-[#6F4E37] rounded-xl cursor-pointer">
+              Cancel
+            </Button>
+            <Button onClick={saveRecipe} disabled={recipeSaving}
+              className="bg-[#6F4E37] hover:bg-[#5A3A1A] text-white rounded-xl cursor-pointer font-bold">
+              {recipeSaving ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+              Save Recipe
             </Button>
           </DialogFooter>
         </DialogContent>

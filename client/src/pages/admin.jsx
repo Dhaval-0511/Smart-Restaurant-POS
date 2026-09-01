@@ -8,13 +8,16 @@ export default function AdminLayout() {
   const user = useStore((s) => s.users.find((u) => u.id === userId));
 
   useEffect(() => {
-    if (userId && user && user.role !== "User") {
+    if (userId && user && !user.canAccessAdmin) {
       toast.error("Access denied: Admin role required");
     }
   }, [userId, user]);
 
-  if (!userId) return <Navigate to="/" />;
-  if (user && user.role !== "User") return <Navigate to="/pos" />;
+  if (!userId) return <Navigate to="/" replace />;
+  if (user && !user.canAccessAdmin) {
+    if (user.role === "KITCHEN_STAFF") return <Navigate to="/kds" replace />;
+    return <Navigate to="/pos" replace />;
+  }
 
   return <Outlet />;
 }

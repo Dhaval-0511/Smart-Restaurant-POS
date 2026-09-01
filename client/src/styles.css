@@ -167,6 +167,11 @@
 }
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+    overflow-x: hidden;
+  }
+
   * {
     border-color: var(--color-border);
   }
@@ -175,5 +180,13 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: 'Inter', 'Outfit', system-ui, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  #root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
   }
 }

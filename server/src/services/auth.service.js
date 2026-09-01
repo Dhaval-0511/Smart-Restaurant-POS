@@ -1,7 +1,8 @@
-﻿import prisma from '../config/database.js';
+import prisma from '../config/database.js';
 import { hashPassword, comparePassword } from '../utils/password.util.js';
 import { generateToken } from '../utils/jwt.util.js';
 import { sendPasswordResetEmail } from './mail.service.js';
+import { logAuditAction } from './audit.service.js';
 import { env } from '../config/env.js';
 import crypto from 'crypto';
 
@@ -21,7 +22,7 @@ export const registerUser = async (data) => {
   return { user };
 };
 
-export const loginUser = async (email, password, rememberMe = false) => {
+export const loginUser = async (email, password, rememberMe = false, req = null) => {
   const user = await prisma.user.findUnique({ where: { email } });
 
   if (!user) throw new Error('Invalid email or password.');
@@ -33,7 +34,10 @@ export const loginUser = async (email, password, rememberMe = false) => {
   if (!isPasswordValid) throw new Error('Invalid email or password.');
 
   const expiresIn = rememberMe ? env.JWT_REMEMBER_EXPIRE : env.JWT_EXPIRE;
-  const token = generateToken(user.id, expiresIn);
+  const token = generateToken(user.id, user.role, expiresIn);
+
+  // Log login audit event (non-blocking)
+  logAuditAction(user.id, 'USER_LOGIN', { email: user.email, role: user.role }, req);
 
   return {
     user: { id: user.id, name: user.name, email: user.email, role: user.role },
@@ -91,27 +95,42 @@ export const getPendingUsers = async () => {
   });
 };
 
-export const approveUser = async (userId, role) => {
+export const approveUser = async (userId, role, requesterId = null, req = null) => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error('User not found.');
   if (user.status !== 'PENDING') throw new Error('User is not pending approval.');
 
-  return await prisma.user.update({
+  const validRoles = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'INVENTORY_MANAGER', 'CASHIER', 'KITCHEN_STAFF'];
+  const assignRole = validRoles.includes(role) ? role : 'CASHIER';
+
+  const updated = await prisma.user.update({
     where: { id: userId },
-    data: { status: 'APPROVED', role: role || 'EMPLOYEE' },
+    data: { status: 'APPROVED', role: assignRole },
     select: { id: true, name: true, email: true, role: true, status: true },
   });
+
+  if (requesterId) {
+    logAuditAction(requesterId, 'USER_APPROVED', { targetUserId: userId, assignedRole: assignRole }, req);
+  }
+
+  return updated;
 };
 
-export const rejectUser = async (userId) => {
+export const rejectUser = async (userId, requesterId = null, req = null) => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error('User not found.');
 
-  return await prisma.user.update({
+  const updated = await prisma.user.update({
     where: { id: userId },
     data: { status: 'REJECTED' },
     select: { id: true, name: true, email: true, status: true },
   });
+
+  if (requesterId) {
+    logAuditAction(requesterId, 'USER_REJECTED', { targetUserId: userId }, req);
+  }
+
+  return updated;
 };
 
 export const getUserById = async (userId) => {
