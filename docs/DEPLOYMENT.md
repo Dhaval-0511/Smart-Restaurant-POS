@@ -1,4 +1,4 @@
-﻿# Deployment Guide
+# Deployment Guide
 
 ## Project
 Smart Restaurant Operations & POS Platform

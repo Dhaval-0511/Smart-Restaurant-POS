@@ -4,9 +4,20 @@ import { emitEvent } from '../config/socket.js';
 
 export const getAllKitchenOrders = async (req, res) => {
   try {
-    const { status } = req.query;
-    const orders = await kitchenService.getAllKitchenOrders(status);
+    const { status, date } = req.query;
+    // date defaults to today inside the service if not provided
+    const orders = await kitchenService.getAllKitchenOrders(status || null, date || null);
     return successResponse(res, orders, 'Kitchen orders retrieved successfully');
+  } catch (error) {
+    return errorResponse(res, error.message, 500, error);
+  }
+};
+
+export const getKdsStats = async (req, res) => {
+  try {
+    const { date } = req.query;
+    const stats = await kitchenService.getKdsStats(date || null);
+    return successResponse(res, stats, 'KDS stats retrieved successfully');
   } catch (error) {
     return errorResponse(res, error.message, 500, error);
   }

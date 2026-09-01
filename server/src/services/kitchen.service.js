@@ -1,5 +1,13 @@
 import prisma from '../config/database.js';
 
+// Get start and end of a given date (defaults to today) in UTC
+const getDayBounds = (dateStr) => {
+  const d = dateStr ? new Date(dateStr) : new Date();
+  const start = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0));
+  const end   = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999));
+  return { start, end };
+};
+
 export const createKitchenOrder = async (orderId, orderItemId, productId) => {
   const kitchenOrder = await prisma.kitchenOrder.create({
     data: {
@@ -24,8 +32,18 @@ export const createKitchenOrder = async (orderId, orderItemId, productId) => {
   return kitchenOrder;
 };
 
-export const getAllKitchenOrders = async (status = null) => {
-  const where = status ? { status } : {};
+/**
+ * getAllKitchenOrders
+ * @param {string|null} status  - filter by KitchenStatus enum value (optional)
+ * @param {string|null} date    - YYYY-MM-DD string (optional, defaults to today)
+ */
+export const getAllKitchenOrders = async (status = null, date = null) => {
+  const { start, end } = getDayBounds(date);
+
+  const where = {
+    createdAt: { gte: start, lte: end },
+    ...(status ? { status } : {}),
+  };
 
   const orders = await prisma.kitchenOrder.findMany({
     where,
@@ -47,6 +65,30 @@ export const getAllKitchenOrders = async (status = null) => {
   });
 
   return orders;
+};
+
+/**
+ * getKdsStats
+ * Returns ticket counts for a given date (defaults to today)
+ * @param {string|null} date - YYYY-MM-DD string
+ */
+export const getKdsStats = async (date = null) => {
+  const { start, end } = getDayBounds(date);
+
+  const [total, pending, preparing, completed] = await Promise.all([
+    prisma.kitchenOrder.count({ where: { createdAt: { gte: start, lte: end } } }),
+    prisma.kitchenOrder.count({ where: { createdAt: { gte: start, lte: end }, status: 'TO_COOK' } }),
+    prisma.kitchenOrder.count({ where: { createdAt: { gte: start, lte: end }, status: 'PREPARING' } }),
+    prisma.kitchenOrder.count({ where: { createdAt: { gte: start, lte: end }, status: 'COMPLETED' } }),
+  ]);
+
+  return {
+    date: date || new Date().toISOString().split('T')[0],
+    total,
+    pending,
+    preparing,
+    completed,
+  };
 };
 
 export const getKitchenOrdersByOrder = async (orderId) => {
@@ -127,4 +169,3 @@ export const completeKitchenOrder = async (id) => {
 
   return kitchenOrder;
 };
-

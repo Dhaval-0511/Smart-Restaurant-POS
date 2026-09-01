@@ -37,7 +37,7 @@ export function PosHeader() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const user = useStore((s) => s.users.find((u) => u.id === s.currentUserId));
-  const isAdmin = user?.role === "User";
+  const isAdmin = Boolean(user?.canAccessAdmin);
   const tableId = useStore((s) => s.currentTableId);
   const table = useStore((s) => s.tables.find((t) => t.id === tableId));
   const logout = useStore((s) => s.logout);
@@ -55,7 +55,7 @@ export function PosHeader() {
   const handleLogout = () => {
     closeSession();
     logout();
-    navigate("/");
+    navigate("/login");
   };
 
   const handleSelectTable = (tid) => {
@@ -160,12 +160,15 @@ export function PosHeader() {
 
         <div className="h-6 w-px bg-[#6F4E37]/30 mx-2" />
 
-        {/* Employee Icon & Name */}
-        <div className="flex items-center gap-2.5 text-[13px] font-bold text-[#6F4E37]">
+        {/* Employee Icon & Name with Role Badge */}
+        <div className="flex items-center gap-2 text-[13px] font-bold text-[#6F4E37]">
           <div className="w-8 h-8 rounded-full bg-[#FAF3E0] border border-[#6F4E37]/30 flex items-center justify-center text-[#6F4E37]">
             <UserIcon className="w-4 h-4" />
           </div>
-          <span className="hidden lg:inline">{user?.name ?? "Employee"}</span>
+          <div className="hidden lg:flex flex-col items-start leading-tight">
+            <span className="text-xs font-extrabold text-[#2B2118]">{user?.name ?? "Staff"}</span>
+            <span className="text-[10px] text-[#6F4E37]/70 font-semibold">{user?.roleLabel || user?.role || "Cashier"}</span>
+          </div>
         </div>
 
         {/* Hamburger Dropdown Menu */}

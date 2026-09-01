@@ -23,15 +23,32 @@ function getAuthHeaders() {
   return headers;
 }
 
+// All valid roles in the system
+const SYSTEM_ROLES = [
+  { value: 'SUPER_ADMIN',       label: 'Super Admin' },
+  { value: 'BRANCH_MANAGER',    label: 'Branch Manager' },
+  { value: 'INVENTORY_MANAGER', label: 'Inventory Manager' },
+  { value: 'CASHIER',           label: 'Cashier' },
+  { value: 'KITCHEN_STAFF',     label: 'Kitchen Staff' },
+];
+
+const ROLE_DISPLAY = {
+  SUPER_ADMIN: 'Super Admin', BRANCH_MANAGER: 'Branch Manager',
+  INVENTORY_MANAGER: 'Inventory Manager', CASHIER: 'Cashier',
+  KITCHEN_STAFF: 'Kitchen Staff', ADMIN: 'Super Admin', EMPLOYEE: 'Cashier',
+};
+
 function normaliseUser(u) {
+  const dbRole = u.role || 'CASHIER';
   return {
     id: u.id,
     name: u.name,
     email: u.email,
-    role: u.role === "ADMIN" ? "User" : "Employee",
+    role: dbRole,
+    roleLabel: ROLE_DISPLAY[dbRole] || dbRole,
     active: !u.isArchived,
     createdAt: u.createdAt,
-    password: "", // never returned from server
+    password: '',
   };
 }
 
@@ -41,7 +58,7 @@ export default function UsersPage() {
   const [pendingUsers, setPendingUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pendingLoading, setPendingLoading] = useState(false);
-  const [selectedRoles, setSelectedRoles] = useState({}); // { [userId]: "EMPLOYEE" | "ADMIN" }
+  const [selectedRoles, setSelectedRoles] = useState({}); // { [userId]: 'CASHIER' | 'SUPER_ADMIN' | ... }
 
   const [editing, setEditing] = useState(null);
   const [open, setOpen] = useState(false);
@@ -80,7 +97,7 @@ export default function UsersPage() {
       // Initialize default roles for pending users
       const initialRoles = {};
       array.forEach((u) => {
-        initialRoles[u.id] = "EMPLOYEE";
+        initialRoles[u.id] = 'CASHIER';
       });
       setSelectedRoles((prev) => ({ ...initialRoles, ...prev }));
     } catch (err) {
@@ -91,11 +108,12 @@ export default function UsersPage() {
   };
 
   const handleApprove = async (user) => {
-    const role = selectedRoles[user.id] || "EMPLOYEE";
+    const role = selectedRoles[user.id] || 'CASHIER';
     setActionLoadingId(user.id);
     try {
       await authApi.approveUser(user.id, role);
-      toast.success(`Approved ${user.name} as ${role === "ADMIN" ? "Admin (User)" : "Employee"}!`);
+      const roleLabel = ROLE_DISPLAY[role] || role;
+      toast.success(`Approved ${user.name} as ${roleLabel}!`);
       // Refresh both lists
       setPendingUsers((prev) => prev.filter((p) => p.id !== user.id));
       await fetchUsers();
@@ -121,10 +139,10 @@ export default function UsersPage() {
 
   const startNew = () => {
     setEditing({
-      name: "",
-      email: "",
-      password: "",
-      role: "Employee",
+      name: '',
+      email: '',
+      password: '',
+      role: 'CASHIER',
       active: true,
     });
     setOpen(true);
@@ -138,8 +156,7 @@ export default function UsersPage() {
       const method = isNew ? "POST" : "PUT";
 
       const payload = { ...editing };
-      if (payload.role === "User") payload.role = "ADMIN";
-      else payload.role = "EMPLOYEE";
+      // role is already the raw DB value (e.g. 'CASHIER', 'SUPER_ADMIN')
 
       const res = await fetch(url, {
         method,
@@ -223,14 +240,14 @@ export default function UsersPage() {
   const handleRoleChange = async (u, newRole) => {
     try {
       const res = await fetch(`${BASE_URL}/auth/employees/${u.id}`, {
-        method: "PUT",
+        method: 'PUT',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ role: newRole === "User" ? "ADMIN" : "EMPLOYEE" }),
+        body: JSON.stringify({ role: newRole }), // newRole is raw DB value
       });
-      if (!res.ok) throw new Error("Failed to update role");
+      if (!res.ok) throw new Error('Failed to update role');
 
       setUsers((prev) =>
-        prev.map((x) => (x.id === u.id ? { ...x, role: newRole } : x))
+        prev.map((x) => (x.id === u.id ? { ...x, role: newRole, roleLabel: ROLE_DISPLAY[newRole] || newRole } : x))
       );
       toast.success("Role updated");
     } catch (err) {
@@ -313,12 +330,13 @@ export default function UsersPage() {
                       <td className="p-3.5 text-[#6F4E37]/80">{u.email}</td>
                       <td className="p-3.5">
                         <Select value={u.role} onValueChange={(v) => handleRoleChange(u, v)}>
-                          <SelectTrigger className="w-28 bg-[#FAF3E0] border-[#6F4E37]/20 text-[#2B2118] rounded-xl font-medium">
+                          <SelectTrigger className="w-40 bg-[#FAF3E0] border-[#6F4E37]/20 text-[#2B2118] rounded-xl font-medium">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent className="bg-white border-[#6F4E37]/35 text-[#2B2118]">
-                            <SelectItem value="User">User (Admin)</SelectItem>
-                            <SelectItem value="Employee">Employee</SelectItem>
+                            {SYSTEM_ROLES.map((r) => (
+                              <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </td>
@@ -426,15 +444,16 @@ export default function UsersPage() {
                       </td>
                       <td className="p-3.5">
                         <Select
-                          value={selectedRoles[u.id] || "EMPLOYEE"}
+                          value={selectedRoles[u.id] || 'CASHIER'}
                           onValueChange={(val) => setSelectedRoles((prev) => ({ ...prev, [u.id]: val }))}
                         >
-                          <SelectTrigger className="w-36 bg-[#FAF3E0] border-[#6F4E37]/25 text-[#2B2118] rounded-xl font-semibold">
+                          <SelectTrigger className="w-44 bg-[#FAF3E0] border-[#6F4E37]/25 text-[#2B2118] rounded-xl font-semibold">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent className="bg-white border-[#6F4E37]/35 text-[#2B2118]">
-                            <SelectItem value="EMPLOYEE">Employee (Cashier)</SelectItem>
-                            <SelectItem value="ADMIN">Admin (Manager)</SelectItem>
+                            {SYSTEM_ROLES.map((r) => (
+                              <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </td>

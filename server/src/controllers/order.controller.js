@@ -3,6 +3,7 @@ import * as kitchenService from '../services/kitchen.service.js';
 import * as productService from '../services/product.service.js';
 import { successResponse, errorResponse, paginatedResponse } from '../utils/response.util.js';
 import { sendReceiptEmail } from '../services/email.service.js';
+import { deductStockForOrder } from '../services/inventory.service.js';
 import prisma from '../config/database.js';
 import { emitEvent } from '../config/socket.js';
 
@@ -64,6 +65,11 @@ export const updateOrderStatus = async (req, res) => {
 
     // Auto-send receipt if order is paid and customer has an email
     if (status === 'PAID') {
+      // Fire-and-forget: auto-deduct ingredient stock based on recipes
+      deductStockForOrder(id, req.userId).catch((err) =>
+        console.error('Stock deduction failed (non-blocking):', err)
+      );
+
       prisma.order.findUnique({
         where: { id },
         include: {

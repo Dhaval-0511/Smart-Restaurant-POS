@@ -2,7 +2,20 @@ import { useNavigate, Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { authApi } from "@/lib/api";
 import { toast } from "sonner";
-import { Eye, EyeOff, CheckCircle } from "lucide-react";
+import { Eye, EyeOff, CheckCircle, CheckCheck, X as XIcon } from "lucide-react";
+
+// Password rules for strong password
+const PWD_RULES = [
+  { id: "length",  label: "At least 8 characters",   test: (v) => v.length >= 8 },
+  { id: "upper",   label: "One uppercase letter (A-Z)", test: (v) => /[A-Z]/.test(v) },
+  { id: "lower",   label: "One lowercase letter (a-z)", test: (v) => /[a-z]/.test(v) },
+  { id: "number",  label: "One number (0-9)",           test: (v) => /[0-9]/.test(v) },
+  { id: "special", label: "One special character (!@#$...)", test: (v) => /[!@#$%^&*(),.?":{}|<>_\-]/.test(v) },
+];
+
+function passwordStrength(pwd) {
+  return PWD_RULES.filter((r) => r.test(pwd)).length;
+}
 
 export default function RegisterPage() {
   const [form, setForm] = useState({ name: "", email: "", password: "", confirmPassword: "" });
@@ -10,6 +23,7 @@ export default function RegisterPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [pwdFocused, setPwdFocused] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => { document.title = "Register | Cafe POS"; }, []);
@@ -20,7 +34,12 @@ export default function RegisterPage() {
     ev.preventDefault();
     if (!form.name || !form.email || !form.password) { toast.error("Please fill in all fields."); return; }
     if (form.password !== form.confirmPassword) { toast.error("Passwords do not match."); return; }
-    if (form.password.length < 6) { toast.error("Password must be at least 6 characters."); return; }
+    // Strong password check
+    const failedRules = PWD_RULES.filter((r) => !r.test(form.password));
+    if (failedRules.length > 0) {
+      toast.error(`Password needs: ${failedRules.map((r) => r.label).join(", ")}`);
+      return;
+    }
     setIsLoading(true);
     try {
       await authApi.register({ name: form.name, email: form.email, password: form.password });
@@ -75,7 +94,7 @@ export default function RegisterPage() {
                   <span>You can sign in with your credentials</span>
                 </div>
               </div>
-              <button onClick={() => navigate("/")} className="auth-btn-primary" style={{ marginTop: "28px" }}>
+              <button onClick={() => navigate("/login")} className="auth-btn-primary" style={{ marginTop: "28px" }}>
                 Back to Sign In
               </button>
             </div>
@@ -129,11 +148,46 @@ export default function RegisterPage() {
             <div className="auth-field">
               <label htmlFor="reg-password" className="auth-label">Password</label>
               <div className="auth-input-wrap">
-                <input id="reg-password" type={showPassword ? "text" : "password"} placeholder="Min. 6 characters" value={form.password} onChange={update("password")} required className="auth-input" />
+                <input
+                  id="reg-password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Min. 8 chars with upper, lower, number"
+                  value={form.password}
+                  onChange={update("password")}
+                  onFocus={() => setPwdFocused(true)}
+                  required
+                  className="auth-input"
+                />
                 <button type="button" className="auth-eye-btn" onClick={() => setShowPassword((s) => !s)}>
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
+              {/* Password strength checklist */}
+              {(pwdFocused || form.password.length > 0) && (
+                <div style={{ marginTop: 8, padding: "10px 12px", background: "#FAF3E0", borderRadius: 10, border: "1px solid rgba(111,78,55,0.15)" }}>
+                  <div style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#6F4E37", textTransform: "uppercase", letterSpacing: "0.5px" }}>Password strength</span>
+                    <div style={{ flex: 1, height: 4, background: "rgba(111,78,55,0.1)", borderRadius: 4, overflow: "hidden" }}>
+                      <div style={{
+                        height: "100%", borderRadius: 4, transition: "all 0.3s",
+                        width: `${(passwordStrength(form.password) / PWD_RULES.length) * 100}%`,
+                        background: passwordStrength(form.password) <= 2 ? "#ef4444" : passwordStrength(form.password) <= 3 ? "#f97316" : passwordStrength(form.password) <= 4 ? "#eab308" : "#22c55e",
+                      }} />
+                    </div>
+                  </div>
+                  {PWD_RULES.map((r) => {
+                    const pass = r.test(form.password);
+                    return (
+                      <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
+                        {pass
+                          ? <CheckCheck size={12} color="#22c55e" />
+                          : <XIcon size={12} color="#ef4444" />}
+                        <span style={{ fontSize: 12, color: pass ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{r.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="auth-field">
@@ -152,7 +206,7 @@ export default function RegisterPage() {
           </form>
 
           <div className="auth-divider-text"><span>Already have an account?</span></div>
-          <Link to="/" className="auth-btn-secondary">Sign In</Link>
+          <Link to="/login" className="auth-btn-secondary">Sign In</Link>
         </div>
       </div>
     </div>

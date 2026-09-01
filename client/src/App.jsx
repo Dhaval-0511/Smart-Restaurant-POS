@@ -4,6 +4,7 @@ import { Toaster } from 'sonner';
 import { useStore } from './lib/store';
 
 // Pages
+import HomePage from './pages/home.jsx';
 import AuthPage from './pages/auth.signin.jsx';
 import RegisterPage from './pages/auth.register.jsx';
 import ForgotPasswordPage from './pages/auth.forgot-password.jsx';
@@ -22,6 +23,15 @@ import AdminCouponsPage from './pages/admin.coupons.jsx';
 import AdminBookingPage from './pages/admin.booking.jsx';
 import AdminUsersPage from './pages/admin.users.jsx';
 import AdminReportsPage from './pages/admin.reports.jsx';
+import AdminInventoryPage from './pages/admin.inventory.jsx';
+
+function AdminIndexRedirect() {
+  const user = useStore((s) => s.users.find((u) => u.id === s.currentUserId));
+  if (user?.role === "INVENTORY_MANAGER") {
+    return <Navigate to="/admin/products" replace />;
+  }
+  return <Navigate to="/admin/reports" replace />;
+}
 
 function App() {
   const bootstrap = useStore((s) => s.bootstrap);
@@ -37,7 +47,8 @@ function App() {
     <BrowserRouter>
       <Routes>
         {/* Public Routes */}
-        <Route path="/" element={<AuthPage />} />
+        <Route path="/" element={<HomePage />} />
+        <Route path="/login" element={<AuthPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -53,7 +64,7 @@ function App() {
 
         {/* Admin Nested Routes */}
         <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<Navigate to="/admin/reports" replace />} />
+          <Route index element={<AdminIndexRedirect />} />
           <Route path="products" element={<AdminProductsPage />} />
           <Route path="categories" element={<AdminCategoriesPage />} />
           <Route path="payment-methods" element={<AdminPaymentMethodsPage />} />
@@ -61,6 +72,7 @@ function App() {
           <Route path="booking" element={<AdminBookingPage />} />
           <Route path="users" element={<AdminUsersPage />} />
           <Route path="reports" element={<AdminReportsPage />} />
+          <Route path="inventory" element={<AdminInventoryPage />} />
         </Route>
 
         {/* Fallback */}

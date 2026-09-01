@@ -24,9 +24,26 @@ export default function SignInPage() {
     try {
       const user = await login(email, password, rememberMe);
       if (!user) { toast.error("Invalid email or password."); return; }
-      await openSession();
-      toast.success(`Welcome back, ${user.name}!`);
-      navigate("/pos");
+
+      const role = user.role;
+      const roleName = user.roleLabel || role;
+
+      if (role === "KITCHEN_STAFF") {
+        toast.success(`Welcome back, ${user.name} (${roleName})!`);
+        navigate("/kds");
+      } else if (role === "INVENTORY_MANAGER") {
+        toast.success(`Welcome back, ${user.name} (${roleName})!`);
+        navigate("/admin/products");
+      } else if (role === "SUPER_ADMIN" || role === "BRANCH_MANAGER" || role === "ADMIN") {
+        await openSession().catch(() => {});
+        toast.success(`Welcome back, ${user.name} (${roleName})!`);
+        navigate("/admin/reports");
+      } else {
+        // CASHIER / EMPLOYEE
+        await openSession().catch(() => {});
+        toast.success(`Welcome back, ${user.name} (${roleName})!`);
+        navigate("/pos");
+      }
     } catch (err) {
       toast.error(err.message || "Login failed. Check your credentials.");
     } finally {
@@ -163,6 +180,11 @@ export default function SignInPage() {
           <Link to="/register" className="auth-btn-secondary">
             Request Access
           </Link>
+          <div style={{ textAlign: "center", marginTop: 16 }}>
+            <Link to="/" style={{ fontSize: 12, color: "#6F4E37", opacity: 0.6, textDecoration: "none", fontWeight: 600 }}>
+              ← Back to Home
+            </Link>
+          </div>
         </div>
       </div>
     </div>
