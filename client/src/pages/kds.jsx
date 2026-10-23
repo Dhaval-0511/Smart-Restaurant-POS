@@ -389,9 +389,16 @@ export default function KDSPage() {
                     <span className="font-extrabold text-lg text-[#2B2118]">#{t.orderNumber}</span>
                     <div className="mt-0.5"><TicketTimer createdAt={t.createdAt} stage={t.stage} /></div>
                   </div>
-                  <Badge variant="outline" className="text-[#6F4E37] border-[#6F4E37]/25 bg-white/80 font-bold text-xs">
-                    {t.stage}
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    {t.orderType === "TAKEAWAY" && (
+                      <span className="text-[10px] font-extrabold bg-amber-100 text-amber-700 border border-amber-300 px-2 py-0.5 rounded-full">
+                        🥡 Takeaway
+                      </span>
+                    )}
+                    <Badge variant="outline" className="text-[#6F4E37] border-[#6F4E37]/25 bg-white/80 font-bold text-xs">
+                      {t.stage}
+                    </Badge>
+                  </div>
                 </div>
 
                 {/* Items list */}
@@ -429,12 +436,27 @@ export default function KDSPage() {
           })}
 
           {!filtered.length && (
-            <div className="col-span-full text-center py-16">
-              <ChefHat className="w-12 h-12 text-[#6F4E37]/20 mx-auto mb-3" />
-              <p className="text-[#6F4E37]/50 font-bold text-base">
-                {isPastDate ? `No kitchen tickets found for ${selectedDate}.` : "No active tickets right now."}
-              </p>
-              {!isPastDate && <p className="text-xs text-zinc-400 mt-1">New orders will appear here automatically.</p>}
+            <div className="col-span-full text-center py-16 space-y-3">
+              <ChefHat className="w-14 h-14 text-[#6F4E37]/20 mx-auto" />
+              {tab !== "all" ? (
+                <>
+                  <p className="text-[#6F4E37]/50 font-bold text-base">No {tab} tickets right now.</p>
+                  <button onClick={() => setTab("all")}
+                    className="text-xs text-[#6F4E37] font-bold underline underline-offset-2 cursor-pointer">
+                    Show all tickets
+                  </button>
+                </>
+              ) : isPastDate ? (
+                <p className="text-[#6F4E37]/50 font-bold text-base">No kitchen tickets for {selectedDate}.</p>
+              ) : (
+                <>
+                  <p className="text-[#6F4E37]/60 font-bold text-base">No active kitchen tickets today.</p>
+                  <p className="text-xs text-zinc-400 max-w-xs mx-auto leading-relaxed">
+                    Tickets appear here when orders are sent to kitchen from the POS.<br/>
+                    Only products with <span className="font-bold text-[#6F4E37]/70">"Show in KDS"</span> enabled will create tickets.
+                  </p>
+                </>
+              )}
             </div>
           )}
         </div>

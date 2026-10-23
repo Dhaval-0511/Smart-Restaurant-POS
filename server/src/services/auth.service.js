@@ -8,14 +8,17 @@ import crypto from 'crypto';
 
 export const registerUser = async (data) => {
   const { name, email, password } = data;
+  const normalizedEmail = email?.trim().toLowerCase();
 
-  const existingUser = await prisma.user.findUnique({ where: { email } });
-  if (existingUser) throw new Error('An account with this email already exists.');
+  const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  if (existingUser) {
+    throw new Error('This email is already registered. Try another or sign in.');
+  }
 
   const hashedPassword = await hashPassword(password);
 
   const user = await prisma.user.create({
-    data: { name, email, password: hashedPassword, status: 'PENDING' },
+    data: { name: name?.trim(), email: normalizedEmail, password: hashedPassword, status: 'PENDING' },
     select: { id: true, name: true, email: true, role: true, status: true, createdAt: true },
   });
 

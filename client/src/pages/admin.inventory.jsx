@@ -343,10 +343,13 @@ export default function InventoryPage() {
 
   const loadLedger = useCallback(async () => {
     try {
-      const data = await inventoryApi.getLedger({ limit: 100 });
-      setLedger(Array.isArray(data) ? data : []);
+      const res = await inventoryApi.getLedger({ limit: 100 });
+      // Handle both raw array and { data: [] } wrapped response
+      const data = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+      setLedger(data);
     } catch (err) {
-      toast.error("Failed to load stock ledger");
+      console.error("Ledger load error:", err);
+      toast.error("Failed to load stock ledger: " + (err.message || "Unknown error"));
     }
   }, []);
 
@@ -682,8 +685,14 @@ export default function InventoryPage() {
                     })}
                     {!ledger.length && (
                       <tr>
-                        <td colSpan={7} className="p-12 text-center text-zinc-400 font-semibold">
-                          No stock movements recorded yet.
+                        <td colSpan={7} className="py-16 text-center">
+                          <div className="space-y-2">
+                            <ClipboardList className="w-10 h-10 text-zinc-300 mx-auto" />
+                            <p className="text-zinc-500 font-bold">No stock movements recorded yet.</p>
+                            <p className="text-xs text-zinc-400 max-w-xs mx-auto">
+                              Entries will appear here after you adjust stock, record wastage, or when orders are paid (auto-deduction).
+                            </p>
+                          </div>
                         </td>
                       </tr>
                     )}

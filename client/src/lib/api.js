@@ -131,6 +131,8 @@ export const orderApi = {
   update: (id, data) => request("PUT", `/orders/${id}/status`, data), // Server expects /status
   delete: (id) => request("DELETE", `/orders/${id}`),
   pay: (id, data) => request("PUT", `/orders/${id}/status`, data), // Alias for status update
+  // Append new items to an existing DB order (batch, creates KDS tickets automatically)
+  appendItems: (id, items) => request("POST", `/orders/${id}/items`, { items }),
 };
 
 // ── Sessions ──────────────────────────────────────────────

@@ -42,21 +42,26 @@ export function CustomerCaptureModal({ open, onOpenChange, tableId, onSuccess })
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!name.trim() || !phone.trim() || !email.trim()) {
-      return toast.error("Please fill in all details");
+    if (!name.trim() || !phone.trim()) {
+      return toast.error("Please enter customer name and mobile number");
     }
 
     setLoading(true);
     try {
       let savedCustomer;
       const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+      const payload = {
+        name: name.trim(),
+        phone: phone.trim(),
+        email: email.trim() || null,
+      };
 
       if (match) {
         // Update existing
         const res = await fetch(`${BASE_URL}/customers/${match.id}`, {
           method: "PUT",
           headers: getAuthHeaders(),
-          body: JSON.stringify({ name, phone, email }),
+          body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error("Failed to update customer");
         const json = await res.json();
@@ -71,7 +76,7 @@ export function CustomerCaptureModal({ open, onOpenChange, tableId, onSuccess })
         const res = await fetch(`${BASE_URL}/customers`, {
           method: "POST",
           headers: getAuthHeaders(),
-          body: JSON.stringify({ name, phone, email }),
+          body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error("Failed to create customer");
         const json = await res.json();
@@ -102,11 +107,11 @@ export function CustomerCaptureModal({ open, onOpenChange, tableId, onSuccess })
       <DialogContent className="max-w-md bg-white border border-[#6F4E37]/20 text-[#2B2118] rounded-3xl shadow-2xl">
         <DialogHeader>
           <DialogTitle className="text-[#2B2118] font-extrabold text-lg">Customer Details</DialogTitle>
-          <p className="text-xs text-[#6F4E37]/60 font-medium">Please enter customer details before starting the order.</p>
+          <p className="text-xs text-[#6F4E37]/60 font-medium">Please enter customer name & mobile number before starting the order.</p>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
           <div className="space-y-1.5">
-            <Label className="text-xs font-bold text-[#6F4E37]">Mobile Number</Label>
+            <Label className="text-xs font-bold text-[#6F4E37]">Mobile Number *</Label>
             <Input 
               autoFocus
               required
@@ -118,7 +123,7 @@ export function CustomerCaptureModal({ open, onOpenChange, tableId, onSuccess })
             {match && <span className="text-[10px] text-green-600 font-bold">Existing customer found</span>}
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs font-bold text-[#6F4E37]">Full Name</Label>
+            <Label className="text-xs font-bold text-[#6F4E37]">Full Name *</Label>
             <Input 
               required
               placeholder="Customer Name"
@@ -128,11 +133,13 @@ export function CustomerCaptureModal({ open, onOpenChange, tableId, onSuccess })
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs font-bold text-[#6F4E37]">Email Address</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-bold text-[#6F4E37]">Email Address</Label>
+              <span className="text-[10px] text-[#6F4E37]/60 font-semibold bg-[#FAF3E0] px-2 py-0.5 rounded-full border border-[#6F4E37]/15">Optional</span>
+            </div>
             <Input 
               type="email"
-              required
-              placeholder="customer@example.com"
+              placeholder="customer@example.com (optional)"
               value={email}
               onChange={e => setEmail(e.target.value)}
               className="bg-[#FAF3E0] text-[#2B2118] border-[#6F4E37]/30 rounded-xl focus:bg-white"

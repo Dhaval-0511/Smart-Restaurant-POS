@@ -11,11 +11,24 @@ export const getCustomerById = async (id) => {
 };
 
 export const createCustomer = async (data) => {
-  return prisma.customer.create({ data: { name: data.name, email: data.email, phone: data.phone } });
+  return prisma.customer.create({
+    data: {
+      name: data.name?.trim(),
+      email: data.email?.trim() || null,
+      phone: data.phone?.trim() || null,
+    },
+  });
 };
 
 export const updateCustomer = async (id, data) => {
-  return prisma.customer.update({ where: { id }, data: { name: data.name, email: data.email, phone: data.phone } });
+  return prisma.customer.update({
+    where: { id },
+    data: {
+      name: data.name?.trim(),
+      email: data.email?.trim() || null,
+      phone: data.phone?.trim() || null,
+    },
+  });
 };
 
 export const deleteCustomer = async (id) => {

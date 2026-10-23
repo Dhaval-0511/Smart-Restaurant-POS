@@ -153,6 +153,7 @@ export const useStore = create(
       kds: [],
       draftOrderId: null,
       searchQuery: "",
+      isTakeaway: false,
       loading: false,
       bootstrapped: false,
 
@@ -391,9 +392,10 @@ export const useStore = create(
 
       // ── Tables (UI only state) ─────────────────────────────
       setCurrentTable: (id) => set({ currentTableId: id }),
+      setTakeawayMode: (val) => set({ isTakeaway: val }),
 
       // ── Orders (local for now, sync on pay) ───────────────
-      createDraftOrder: (tableId, customerId = null) => {
+      createDraftOrder: (tableId, customerId = null, orderType = 'DINE_IN') => {
         const id = uid();
         const now = new Date();
         const d = String(now.getDate()).padStart(2, '0');
@@ -403,6 +405,7 @@ export const useStore = create(
         const number = `ORD-${d}${m}${y}${sequence}`;
         const o = {
           id, number, tableId, customerId,
+          orderType,
           lines: [], subtotal: 0, tax: 0,
           discountTotal: 0, total: 0,
           status: "Draft",
@@ -423,9 +426,9 @@ export const useStore = create(
         })),
 
       addLine: (orderId, productId) => {
-        // Guard: never mutate a completed/paid order
+        // Guard: never mutate a cancelled order
         const targetOrder = get().orders.find((x) => x.id === orderId);
-        if (!targetOrder || targetOrder.status === 'Paid' || targetOrder.status === 'Cancelled') return;
+        if (!targetOrder || targetOrder.status === 'Cancelled') return;
 
         const p = get().products.find((x) => x.id === productId);
         if (!p) return;
@@ -442,9 +445,9 @@ export const useStore = create(
         get().recalcOrder(orderId);
       },
       setLineQty: (orderId, productId, qty) => {
-        // Guard: never mutate a completed/paid order
+        // Guard: never mutate a cancelled order
         const targetOrder = get().orders.find((x) => x.id === orderId);
-        if (!targetOrder || targetOrder.status === 'Paid' || targetOrder.status === 'Cancelled') return;
+        if (!targetOrder || targetOrder.status === 'Cancelled') return;
 
         set((s) => ({
           orders: s.orders.map((o) => {
@@ -587,60 +590,120 @@ export const useStore = create(
           throw new Error("No active session. Please log out and log in again.");
         }
 
-        try {
-          let savedOrder;
-          try {
-            savedOrder = await orderApi.create({
-              sessionId,
-              tableId: o.tableId,
-              customerId: o.customerId,
-              employeeId: o.employeeId ?? get().currentUserId,
-              items: o.lines.map((l) => ({ productId: l.productId, quantity: l.qty, unitPrice: l.unitPrice })),
-            });
-          } catch (firstErr) {
-            // Self-healing session recovery: if backend throws session error, fetch/create session and retry
-            if (firstErr.message?.toLowerCase().includes("session")) {
-              console.warn("Session error during order creation, attempting session recovery...");
-              const activeSess = await sessionApi.getOpenSession().catch(() => null);
-              let newSessionId = activeSess?.id;
-              if (!newSessionId) {
-                const sess = await sessionApi.open({ userId: get().currentUserId }).catch(() => null);
-                newSessionId = sess?.id;
-              }
-              if (newSessionId) {
-                sessionId = newSessionId;
-                set({ currentSessionId: newSessionId });
-                // Retry creating the order
-                savedOrder = await orderApi.create({
-                  sessionId: newSessionId,
-                  tableId: o.tableId,
-                  customerId: o.customerId,
-                  employeeId: o.employeeId ?? get().currentUserId,
-                  items: o.lines.map((l) => ({ productId: l.productId, quantity: l.qty, unitPrice: l.unitPrice })),
-                });
-              } else {
-                throw firstErr;
-              }
-            } else {
-              throw firstErr;
-            }
-          }
+        // Determine if this is a re-send to an existing DB order
+        const isDbOrder = orderId.length > 15; // UUID = 36 chars; local uid = 8 chars
 
-          // Replace local draft ID with the real DB ID everywhere and set sentToKitchen
+        // Calculate delta: lines added since the last kitchen send
+        const lastSentLines = o.lastSentLines || []; // array of { productId, qty }
+        const deltaLines = o.lines.filter((l) => {
+          const prevLine = lastSentLines.find((ls) => ls.productId === l.productId);
+          // Include if new product OR quantity increased
+          if (!prevLine) return true;
+          if (l.qty > prevLine.qty) return true;
+          return false;
+        }).map((l) => {
+          const prevLine = lastSentLines.find((ls) => ls.productId === l.productId);
+          const deltaQty = prevLine ? l.qty - prevLine.qty : l.qty;
+          return { ...l, qty: deltaQty };
+        });
+
+        if (deltaLines.length === 0) {
+          // Nothing new to send — just mark as sent
           set((state) => ({
             orders: state.orders.map((ord) =>
               ord.id === orderId
-                ? { ...ord, id: savedOrder.id, number: savedOrder.orderNumber, sessionId, sentToKitchen: true }
+                ? { ...ord, sentToKitchen: true, lastSentLines: o.lines.map((l) => ({ productId: l.productId, qty: l.qty })) }
                 : ord
             ),
-            draftOrderId: state.draftOrderId === orderId ? savedOrder.id : state.draftOrderId,
           }));
+          return;
+        }
 
-          // Fetch fresh state from KDS backend
+        try {
+          if (isDbOrder) {
+            // ── Re-send: append only new/changed items to the existing order ──
+            await orderApi.appendItems(orderId, deltaLines.map((l) => ({
+              productId: l.productId,
+              quantity: l.qty,
+              unitPrice: l.unitPrice,
+            })));
+
+            // Mark sent and update lastSentLines snapshot
+            set((state) => ({
+              orders: state.orders.map((ord) =>
+                ord.id === orderId
+                  ? {
+                      ...ord,
+                      sentToKitchen: true,
+                      lastSentLines: o.lines.map((l) => ({ productId: l.productId, qty: l.qty })),
+                    }
+                  : ord
+              ),
+            }));
+          } else {
+            // ── First send: create a new DB order ──
+            let savedOrder;
+            try {
+              savedOrder = await orderApi.create({
+                sessionId,
+                tableId: o.tableId || null,
+                customerId: o.customerId,
+                employeeId: o.employeeId ?? get().currentUserId,
+                orderType: o.orderType || 'DINE_IN',
+                items: o.lines.map((l) => ({ productId: l.productId, quantity: l.qty, unitPrice: l.unitPrice })),
+              });
+            } catch (firstErr) {
+              // Self-healing session recovery
+              if (firstErr.message?.toLowerCase().includes("session")) {
+                console.warn("Session error during order creation, attempting session recovery...");
+                const activeSess = await sessionApi.getOpenSession().catch(() => null);
+                let newSessionId = activeSess?.id;
+                if (!newSessionId) {
+                  const sess = await sessionApi.open({ userId: get().currentUserId }).catch(() => null);
+                  newSessionId = sess?.id;
+                }
+                if (newSessionId) {
+                  sessionId = newSessionId;
+                  set({ currentSessionId: newSessionId });
+                  savedOrder = await orderApi.create({
+                    sessionId: newSessionId,
+                    tableId: o.tableId || null,
+                    customerId: o.customerId,
+                    employeeId: o.employeeId ?? get().currentUserId,
+                    orderType: o.orderType || 'DINE_IN',
+                    items: o.lines.map((l) => ({ productId: l.productId, quantity: l.qty, unitPrice: l.unitPrice })),
+                  });
+                } else {
+                  throw firstErr;
+                }
+              } else {
+                throw firstErr;
+              }
+            }
+
+            // Replace local draft ID with the real DB ID and record lastSentLines
+            set((state) => ({
+              orders: state.orders.map((ord) =>
+                ord.id === orderId
+                  ? {
+                      ...ord,
+                      id: savedOrder.id,
+                      number: savedOrder.orderNumber,
+                      sessionId,
+                      sentToKitchen: true,
+                      lastSentLines: o.lines.map((l) => ({ productId: l.productId, qty: l.qty })),
+                    }
+                  : ord
+              ),
+              draftOrderId: state.draftOrderId === orderId ? savedOrder.id : state.draftOrderId,
+            }));
+          }
+
+          // Fetch fresh KDS state
           await get().fetchKds();
         } catch (err) {
           console.error("sendOrderToKitchen failed:", err);
-          throw new Error(err.message || "Failed to create order on server");
+          throw new Error(err.message || "Failed to send order to kitchen");
         }
       },
 
@@ -682,6 +745,8 @@ export const useStore = create(
                 id: item.orderId,
                 orderId: item.orderId,
                 orderNumber: item.order?.orderNumber || '',
+                orderType: item.order?.orderType || 'DINE_IN',
+                tableId: item.order?.tableId || null,
                 items: [],
                 stage: 'ToCook',
                 createdAt: new Date(item.createdAt).getTime(),
@@ -740,6 +805,7 @@ export const useStore = create(
             total: parseFloat(o.total) || 0,
             createdAt: o.createdAt ? new Date(o.createdAt).getTime() : Date.now(),
             sentToKitchen: o.kitchenOrders && o.kitchenOrders.length > 0,
+            orderType: o.orderType || 'DINE_IN',
             lines: (o.orderItems || []).map(item => ({
               productId: item.productId,
               qty: parseFloat(item.quantity) || 1,
