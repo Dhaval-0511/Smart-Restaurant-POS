@@ -156,8 +156,13 @@ export const useStore = create(
       isTakeaway: false,
       loading: false,
       bootstrapped: false,
+      // ── Low-stock alerts (populated by socket events) ───────
+      lowStockAlerts: [],
 
       setSearchQuery: (query) => set({ searchQuery: query }),
+      dismissLowStockAlert: (ingredientId) =>
+        set((s) => ({ lowStockAlerts: s.lowStockAlerts.filter((a) => a.ingredientId !== ingredientId) })),
+      clearLowStockAlerts: () => set({ lowStockAlerts: [] }),
 
       // ── Bootstrap: load all reference data from DB ─────────
       bootstrap: async () => {
@@ -236,6 +241,7 @@ export const useStore = create(
           socket.connect();
           socket.off("kds:ticket-created");
           socket.off("kds:ticket-updated");
+          socket.off("inventory:low-stock");
           
           socket.on("kds:ticket-created", () => {
             get().fetchKds().catch((err) => console.error("Real-time fetchKds failed:", err));
@@ -243,6 +249,17 @@ export const useStore = create(
           
           socket.on("kds:ticket-updated", () => {
             get().fetchKds().catch((err) => console.error("Real-time fetchKds failed:", err));
+          });
+
+          // ── Low-stock real-time alerts ──────────────────────
+          socket.on("inventory:low-stock", (data) => {
+            set((s) => ({
+              lowStockAlerts: [
+                // Replace existing alert for same ingredient or prepend new one
+                { ...data, seenAt: Date.now() },
+                ...s.lowStockAlerts.filter((a) => a.ingredientId !== data.ingredientId),
+              ].slice(0, 20), // keep max 20 alerts
+            }));
           });
         } catch (e) {
           console.error("Bootstrap error:", e);

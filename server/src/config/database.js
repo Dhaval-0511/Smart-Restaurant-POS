@@ -6,10 +6,16 @@ import { PrismaClient } from '@prisma/client';
 // database" errors on cold starts.
 const rawUrl = process.env.DATABASE_URL || '';
 
-// Append connect_timeout if not already present so Neon gets enough time to wake
-const dbUrl = rawUrl.includes('connect_timeout')
-  ? rawUrl
-  : rawUrl + (rawUrl.includes('?') ? '&' : '?') + 'connect_timeout=30';
+// Append connect_timeout & pool_timeout so Neon gets enough time to wake from cold sleep
+let dbUrl = rawUrl;
+if (dbUrl) {
+  if (!dbUrl.includes('connect_timeout')) {
+    dbUrl += (dbUrl.includes('?') ? '&' : '?') + 'connect_timeout=30';
+  }
+  if (!dbUrl.includes('pool_timeout')) {
+    dbUrl += (dbUrl.includes('?') ? '&' : '?') + 'pool_timeout=30';
+  }
+}
 
 const prisma = new PrismaClient({
   datasources: { db: { url: dbUrl } },

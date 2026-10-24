@@ -1,4 +1,5 @@
 import prisma from '../config/database.js';
+import { emitEvent } from '../config/socket.js';
 
 // ── Ingredients CRUD ─────────────────────────────────────────────────────────
 
@@ -210,6 +211,40 @@ export const deductStockForOrder = async (orderId, recordedById) => {
           },
         }),
       ]);
+
+      // ── Broadcast low-stock alert if ingredient is at/below minimum ──────
+      const minStock = Number(currentIngredient.minimumStock ?? 0);
+      if (newStock <= minStock) {
+        emitEvent('inventory:low-stock', {
+          ingredientId: ri.ingredientId,
+          name: currentIngredient.name,
+          currentStock: newStock,
+          minimumStock: minStock,
+          unit: currentIngredient.unitOfMeasure,
+        });
+      }
     }
   }
 };
+
+// ── Standalone Low-Stock Check & Broadcast (callable from controllers) ────────
+
+export const broadcastLowStockAlerts = async () => {
+  try {
+    const lowItems = await getLowStockList();
+    for (const ing of lowItems) {
+      emitEvent('inventory:low-stock', {
+        ingredientId: ing.id,
+        name: ing.name,
+        currentStock: Number(ing.currentStock),
+        minimumStock: Number(ing.minimumStock),
+        unit: ing.unitOfMeasure,
+      });
+    }
+    return lowItems;
+  } catch (err) {
+    console.error('[inventory] broadcastLowStockAlerts error:', err);
+    return [];
+  }
+};
+

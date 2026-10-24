@@ -27,6 +27,7 @@ import {
   Coffee,
   Package,
   CreditCard,
+  AlertTriangle,
 } from "lucide-react";
 
 // Smart emoji mapper based on product name keywords
@@ -116,6 +117,29 @@ export default function OrderView() {
   const [captureOpen, setCaptureOpen] = useState(false);
   const [pendingTable, setPendingTable] = useState(null);
 
+  // ── Recipe/Stock guard ────────────────────────────────────────────────────
+  // Local cache: productId → [{ingredientId, qty, unit, name, currentStock}]
+  const [posRecipes, setPosRecipes] = useState({});
+  const [outOfStockModal, setOutOfStockModal] = useState(null); // { productName, missingItems }
+
+  useEffect(() => {
+    const token = localStorage.getItem("token") || sessionStorage.getItem("token") || "";
+    const headers = { Authorization: `Bearer ${token}` };
+    const base = import.meta.env.VITE_API_URL || "";
+    products.forEach((p) => {
+      fetch(`${base}/api/inventory/products/${p.id}/recipe`, { headers })
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => {
+          // API returns { success, data: RecipeItem[] }
+          const items = Array.isArray(d?.data) ? d.data : Array.isArray(d) ? d : [];
+          if (items.length > 0) {
+            setPosRecipes((prev) => ({ ...prev, [p.id]: items }));
+          }
+        })
+        .catch(() => {});
+    });
+  }, [products]);
+
   // Ensure draft order exists for selected table
   useEffect(() => {
     if (!currentTableId) return;
@@ -165,6 +189,29 @@ export default function OrderView() {
   };
 
   const handleAdd = (pid) => {
+    // ── Stock guard: check recipe ingredients before adding ──────────────────
+    const recipe = posRecipes[pid];
+    if (recipe && recipe.length > 0) {
+      const missing = recipe.filter((ri) => {
+        const stock  = Number(ri.ingredient?.currentStock ?? ri.currentStock ?? Infinity);
+        const needed = Number(ri.quantity ?? ri.qty ?? 0);
+        return stock < needed;
+      });
+      if (missing.length > 0) {
+        const product = products.find((p) => p.id === pid);
+        setOutOfStockModal({
+          productName: product?.name ?? "Item",
+          missingItems: missing.map((ri) => ({
+            name: ri.ingredient?.name ?? ri.name ?? "Ingredient",
+            available: Number(ri.ingredient?.currentStock ?? ri.currentStock ?? 0),
+            required:  Number(ri.quantity ?? ri.qty ?? 0),
+            unit:      ri.ingredient?.unitOfMeasure ?? ri.unit ?? "",
+          })),
+        });
+        return; // block add
+      }
+    }
+
     // For takeaway: if no draft order exists, open customer capture first
     if (isTakeaway && !order?.id) {
       setPendingTable(null);
@@ -196,6 +243,20 @@ export default function OrderView() {
       updateOrder(order.id, { sentToKitchen: false });
     }
   };
+
+  // ── Derived: which products are completely out of stock ───────────────────
+  const outOfStockProductIds = useMemo(() => {
+    const set_ = new Set();
+    Object.entries(posRecipes).forEach(([pid, recipe]) => {
+      const blocked = recipe.some((ri) => {
+        const stock  = Number(ri.ingredient?.currentStock ?? ri.currentStock ?? Infinity);
+        const needed = Number(ri.quantity ?? ri.qty ?? 0);
+        return stock < needed;
+      });
+      if (blocked) set_.add(pid);
+    });
+    return set_;
+  }, [posRecipes]);
 
   const applyCoupon = () => {
     if (!order) return;
@@ -239,9 +300,14 @@ export default function OrderView() {
 
   const handlePayModalClose = (open) => {
     setPayModalOpen(open);
-    // Do NOT auto-clear the table after payment.
-    // The cashier sees "✓ Payment Done – tap product to add more items" state.
-    // They can click "Done — Start New Order" manually when completely finished.
+  };
+
+  const handleNewOrder = () => {
+    setPayModalOpen(false);
+    setCurrentTable(null);
+    setDraftOrder(null);
+    setTakeawayMode(false);
+    if (!isTakeaway) setShowFloor(true);
   };
 
   const displayOrder = order || {
@@ -290,7 +356,55 @@ export default function OrderView() {
         paymentMethods={paymentMethods}
         onConfirmPay={handleConfirmPay}
         onEmailReceipt={handleEmailReceipt}
+        onNewOrder={handleNewOrder}
       />
+
+      {/* ── Out-of-Stock Block Modal ──────────────────────────── */}
+      <Dialog open={!!outOfStockModal} onOpenChange={() => setOutOfStockModal(null)}>
+        <DialogContent className="max-w-sm rounded-3xl border-red-200 bg-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <AlertTriangle className="w-5 h-5" />
+              Cannot Prepare Item
+            </DialogTitle>
+          </DialogHeader>
+          {outOfStockModal && (
+            <div className="space-y-3">
+              <p className="text-sm text-[#2B2118] font-semibold">
+                <span className="font-extrabold text-red-600">{outOfStockModal.productName}</span> cannot
+                be prepared — the following ingredients are out of stock:
+              </p>
+              <div className="space-y-2">
+                {outOfStockModal.missingItems.map((item, i) => (
+                  <div key={i} className="flex items-center justify-between bg-red-50 border border-red-100 rounded-xl px-3 py-2.5 text-sm">
+                    <div>
+                      <div className="font-bold text-red-800">{item.name}</div>
+                      <div className="text-xs text-red-600">
+                        Available: <span className="font-black">{item.available.toFixed(2)} {item.unit}</span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-[#6F4E37]/70">Required</div>
+                      <div className="font-black text-red-700">{item.required} {item.unit}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-[#6F4E37]/60">
+                Please restock the ingredient or remove this item from the menu temporarily.
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <button
+              onClick={() => setOutOfStockModal(null)}
+              className="w-full py-2.5 bg-[#6F4E37] hover:bg-[#5A3A1A] text-white font-extrabold rounded-xl text-sm transition cursor-pointer"
+            >
+              Understood
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Table Status Bar + Takeaway Toggle ─────────────────── */}
       <div className="flex items-center gap-2">
@@ -390,12 +504,25 @@ export default function OrderView() {
               <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                 {filteredProducts.map((p) => {
                   const cat = categories.find((c) => c.id === p.categoryId);
+                  const isOOS = outOfStockProductIds.has(p.id);
                   return (
                     <button
                       key={p.id}
                       onClick={() => handleAdd(p.id)}
-                      className="group relative rounded-2xl bg-[#FAF3E0]/30 hover:bg-[#FAF3E0]/80 border border-[#6F4E37]/20 hover:border-[#6F4E37]/50 p-3 text-left transition-all duration-300 hover:-translate-y-1 shadow-sm hover:shadow-xl cursor-pointer flex flex-col h-[115px] select-none overflow-hidden"
+                      className={`group relative rounded-2xl border p-3 text-left transition-all duration-300 shadow-sm flex flex-col h-[115px] select-none overflow-hidden ${
+                        isOOS
+                          ? "bg-gray-100/80 border-gray-300 cursor-not-allowed opacity-70"
+                          : "bg-[#FAF3E0]/30 hover:bg-[#FAF3E0]/80 border-[#6F4E37]/20 hover:border-[#6F4E37]/50 hover:-translate-y-1 hover:shadow-xl cursor-pointer"
+                      }`}
                     >
+                      {/* Out-of-stock overlay badge */}
+                      {isOOS && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/70 rounded-2xl z-10">
+                          <AlertTriangle className="w-5 h-5 text-red-500 mb-0.5" />
+                          <span className="text-[10px] font-black text-red-600 uppercase tracking-wide">Out of Stock</span>
+                        </div>
+                      )}
+
                       {/* Category dot top-right */}
                       {cat && (
                         <div
@@ -410,12 +537,16 @@ export default function OrderView() {
                       </div>
 
                       {/* Product name */}
-                      <div className="font-bold text-[#2B2118] group-hover:text-[#6F4E37] text-[11px] leading-snug line-clamp-2 flex-1">
+                      <div className={`font-bold text-[11px] leading-snug line-clamp-2 flex-1 ${
+                        isOOS ? "text-gray-500" : "text-[#2B2118] group-hover:text-[#6F4E37]"
+                      }`}>
                         {p.name}
                       </div>
 
                       {/* Price */}
-                      <div className="text-[#6F4E37] font-extrabold text-sm tracking-tight mt-1">
+                      <div className={`font-extrabold text-sm tracking-tight mt-1 ${
+                        isOOS ? "text-gray-400" : "text-[#6F4E37]"
+                      }`}>
                         ₹{p.price.toLocaleString()}
                       </div>
                     </button>

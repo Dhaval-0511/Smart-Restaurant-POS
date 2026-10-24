@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useStore } from "@/lib/store";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,9 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
-import { Search, Trash2, Edit, Clock, ChefHat, CheckCircle2, Flame, Timer } from "lucide-react";
+import { Search, Trash2, Edit, Clock, ChefHat, CheckCircle2, Flame, Timer, Printer, Download } from "lucide-react";
+import { ReceiptPrint } from "@/components/ReceiptPrint";
+// jsPDF/autoTable loaded on-demand only when PDF is downloaded
 
 // ─── Live Kitchen Status Badge ─────────────────────────────────────────────
 
@@ -165,6 +168,8 @@ export default function OrdersPage() {
   const orders = useStore((s) => s.orders);
   const customers = useStore((s) => s.customers);
   const products = useStore((s) => s.products);
+  const paymentMethods = useStore((s) => s.paymentMethods);
+  const tables = useStore((s) => s.tables);
   const deleteOrder = useStore((s) => s.deleteOrder);
   const setDraftOrder = useStore((s) => s.setDraftOrder);
   const setCurrentTable = useStore((s) => s.setCurrentTable);
@@ -174,7 +179,65 @@ export default function OrdersPage() {
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState(null);
   const [page, setPage] = useState(1);
+  const [printOrder, setPrintOrder] = useState(null);
   const PAGE_SIZE = 10;
+
+  const handlePrintOrder = (ord) => {
+    setPrintOrder(ord);
+    setTimeout(() => {
+      window.print();
+    }, 80);
+  };
+
+  const handleDownloadPdf = async (ord) => {
+    try {
+      const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+        import("jspdf"),
+        import("jspdf-autotable"),
+      ]);
+      const doc = new jsPDF();
+      const customerObj = customers.find((c) => c.id === ord.customerId);
+      const tableObj = tables.find((t) => t.id === ord.tableId);
+      const tableStr = ord.orderType === "TAKEAWAY" ? "Takeaway" : tableObj ? `Table ${tableObj.number}` : "Dine-in";
+      const dateStr = ord.createdAt ? format(new Date(ord.createdAt), "PPP p") : format(new Date(), "PPP p");
+
+      doc.setFontSize(18); doc.setTextColor(111, 78, 55);
+      doc.text("CAFE POS – TAX INVOICE", 14, 20);
+      doc.setFontSize(10); doc.setTextColor(100);
+      doc.text(`Order: #${ord.number || ord.id.slice(0, 6)}   |   Date: ${dateStr}`, 14, 28);
+      doc.text(`Customer: ${customerObj?.name || "Guest"}   |   Type: ${tableStr}`, 14, 34);
+
+      const itemsData = (ord.lines || []).map((l, idx) => {
+        const prod = products.find((p) => p.id === l.productId);
+        const qty = Number(l.qty || 0);
+        const price = Number(l.unitPrice || 0);
+        return [idx + 1, prod?.name || "Item", qty, `₹${price.toFixed(2)}`, `₹${(qty * price).toFixed(2)}`];
+      });
+
+      autoTable(doc, {
+        startY: 40,
+        head: [["#", "Item", "Qty", "Price", "Total"]],
+        body: itemsData,
+        headStyles: { fillColor: [111, 78, 55] },
+        alternateRowStyles: { fillColor: [250, 243, 224] },
+      });
+
+      const finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY : 80;
+      doc.setFontSize(10); doc.setTextColor(80);
+      const sub = Number(ord.subtotal || 0).toFixed(2);
+      const tax = Number(ord.tax || 0).toFixed(2);
+      const tot = Number(ord.total || 0).toFixed(2);
+      doc.text(`Subtotal: ₹${sub}`, 135, finalY + 10);
+      doc.text(`GST (5%): ₹${tax}`, 135, finalY + 16);
+      doc.setFontSize(12); doc.setTextColor(111, 78, 55);
+      doc.text(`Total Paid: ₹${tot}`, 135, finalY + 24);
+
+      doc.save(`Bill_${ord.number || ord.id.slice(0, 6)}.pdf`);
+    } catch (err) {
+      console.error("PDF download failed:", err);
+      alert("PDF download failed. Please try again.");
+    }
+  };
 
   // Reset to page 1 whenever search query changes
   useEffect(() => { setPage(1); }, [q]);
@@ -455,6 +518,21 @@ export default function OrdersPage() {
                     {order.status || "Unknown"}
                   </Badge>
                 </div>
+
+                {order.status === "Paid" && (
+                  <div className="bg-[#FAF3E0]/50 rounded-xl px-3 py-2 border border-[#6F4E37]/10 col-span-2 flex justify-between items-center">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider font-bold text-[#6F4E37]/50">Payment Method</div>
+                      <div className="font-bold text-[#2B2118] text-xs">
+                        {paymentMethods.find((p) => p.id === order.paymentMethodId)?.name || order.paymentMethod || "Paid"}
+                        {order.paymentRef ? ` (Ref: ${order.paymentRef})` : ""}
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                      ✓ Settled
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Kitchen detail panel */}
@@ -516,8 +594,39 @@ export default function OrdersPage() {
               </Button>
             </DialogFooter>
           )}
+
+          {order?.status === "Paid" && (
+            <DialogFooter className="flex gap-2">
+              <Button
+                onClick={() => handlePrintOrder(order)}
+                className="bg-[#6F4E37] hover:bg-[#5A3A1A] text-white flex-1 font-bold cursor-pointer rounded-xl py-2"
+              >
+                <Printer className="w-4 h-4 mr-1.5 inline" /> Print Bill
+              </Button>
+              <Button
+                onClick={() => handleDownloadPdf(order)}
+                variant="outline"
+                className="border-[#6F4E37]/30 text-[#6F4E37] hover:bg-[#FAF3E0] flex-1 font-bold cursor-pointer rounded-xl py-2"
+              >
+                <Download className="w-4 h-4 mr-1.5 inline" /> Download PDF
+              </Button>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
+
+      {/* Printable thermal receipt portal */}
+      {printOrder && typeof document !== "undefined" && createPortal(
+        <ReceiptPrint
+          order={printOrder}
+          customer={customers.find((c) => c.id === printOrder.customerId)}
+          table={tables.find((t) => t.id === printOrder.tableId)}
+          paymentMethodName={paymentMethods.find((p) => p.id === printOrder.paymentMethodId)?.name || printOrder.paymentMethod || "Paid"}
+          paymentRef={printOrder.paymentRef}
+          products={products}
+        />,
+        document.body
+      )}
     </div>
   );
 }
