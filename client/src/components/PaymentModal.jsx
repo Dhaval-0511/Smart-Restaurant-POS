@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Dialog,
   DialogContent,
@@ -15,8 +16,11 @@ import {
   Banknote,
   CreditCard,
   Smartphone,
+  MessageSquare,
   X,
 } from "lucide-react";
+import { useStore } from "@/lib/store";
+import { ReceiptPrint } from "./ReceiptPrint";
 
 const PM_ICONS = {
   Cash: Banknote,
@@ -33,6 +37,7 @@ export function PaymentModal({
   paymentMethods,
   onConfirmPay,   // (pmId, amount, ref) => void
   onEmailReceipt, // (email) => void
+  onNewOrder,     // () => void - cleanly resets POS for next customer
 }) {
   const [selectedPM, setSelectedPM] = useState(null);
   const [cashReceived, setCashReceived] = useState("");
@@ -40,6 +45,64 @@ export function PaymentModal({
   const [payDone, setPayDone] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [emailVal, setEmailVal] = useState("");
+
+  const products = useStore((s) => s.products);
+  const users = useStore((s) => s.users);
+  const currentUserId = useStore((s) => s.currentUserId);
+  const cashierName = users.find((u) => u.id === currentUserId)?.name || "Cashier";
+
+  const handlePrintReceipt = () => {
+    try {
+      setTimeout(() => {
+        window.print();
+      }, 50);
+    } catch (err) {
+      console.error("Print receipt error:", err);
+    }
+  };
+
+  const handleStartNewOrder = () => {
+    setSelectedPM(null);
+    setCashReceived("");
+    setCardRef("");
+    setPayDone(false);
+    setEmailOpen(false);
+    setEmailVal("");
+    if (onNewOrder) {
+      onNewOrder();
+    } else {
+      onOpenChange(false);
+    }
+  };
+
+  const handleWhatsAppReceipt = () => {
+    try {
+      const rawPhone = customer?.phone?.replace(/\D/g, "");
+      if (!rawPhone || rawPhone.length < 10) {
+        toast.error("Customer does not have a valid 10-digit phone number registered");
+        return;
+      }
+      const phoneWithCode = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
+      const orderLines = displayOrder.lines || [];
+      const itemsText = orderLines.map((l) => {
+        const prod = products.find((p) => p.id === l.productId);
+        return `• ${prod?.name || 'Item'} x ${l.qty} - ₹${(l.qty * l.unitPrice).toFixed(2)}`;
+      }).join("\n");
+
+      const tableText = displayOrder.orderType === "TAKEAWAY"
+        ? "🥡 Takeaway"
+        : (table?.number ? `Table ${table.number}` : "Dine-in");
+
+      const message = `🧾 *CAFE POS - Artisan Coffee & Kitchen*\n104 Heritage Boulevard, Ground Floor\nPhone: +91 98765 43210\n--------------------------------\n*Bill No:* ${displayOrder.number || 'ORD-0001'}\n*Date:* ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}\n*Order Type:* ${tableText}\n*Customer:* ${customer?.name || 'Guest'}\n--------------------------------\n*Items:*\n${itemsText}\n--------------------------------\n*Subtotal:* ₹${(displayOrder.subtotal || 0).toFixed(2)}\n${displayOrder.discountTotal ? `*Discount:* -₹${displayOrder.discountTotal.toFixed(2)}\n` : ''}*Tax (GST):* ₹${(displayOrder.tax || 0).toFixed(2)}\n*Total Paid:* ₹${roundedTotal} (${selectedPMObj?.name || 'PAID'})\n--------------------------------\nThank you for dining with us! Have a wonderful day! ☕`;
+
+      const encoded = encodeURIComponent(message);
+      window.open(`https://api.whatsapp.com/send?phone=${phoneWithCode}&text=${encoded}`, "_blank");
+      toast.success(`Opening WhatsApp for ${customer.name || customer.phone}`);
+    } catch (err) {
+      console.error("WhatsApp share error:", err);
+      toast.error("Could not open WhatsApp");
+    }
+  };
 
   const displayOrder = order || {
     lines: [],
@@ -372,11 +435,19 @@ export function PaymentModal({
                 {/* Actions */}
                 <div className="w-full space-y-2">
                   <button
-                    onClick={() => window.print()}
+                    onClick={handlePrintReceipt}
                     className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-[#6F4E37]/30 text-[#6F4E37] font-extrabold text-sm hover:bg-[#FAF3E0] transition cursor-pointer"
                   >
                     <Printer className="w-4 h-4" />
                     Print Receipt
+                  </button>
+
+                  <button
+                    onClick={handleWhatsAppReceipt}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm transition shadow-sm cursor-pointer"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    Send Bill via WhatsApp {customer?.phone ? `(${customer.phone})` : ""}
                   </button>
 
                   {!emailOpen ? (
@@ -412,7 +483,7 @@ export function PaymentModal({
                   )}
 
                   <button
-                    onClick={handleClose}
+                    onClick={handleStartNewOrder}
                     className="w-full py-3 rounded-2xl bg-[#6F4E37] text-white font-extrabold text-sm hover:bg-[#5A3A1A] transition shadow-md cursor-pointer"
                   >
                     New Order
@@ -423,6 +494,18 @@ export function PaymentModal({
           </div>
         </div>
       </DialogContent>
+      {open && typeof document !== "undefined" && createPortal(
+        <ReceiptPrint
+          order={displayOrder}
+          customer={customer}
+          table={table}
+          paymentMethodName={selectedPMObj?.name}
+          paymentRef={cardRef}
+          cashierName={cashierName}
+          products={products}
+        />,
+        document.body
+      )}
     </Dialog>
   );
 }

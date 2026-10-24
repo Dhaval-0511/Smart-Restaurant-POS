@@ -117,9 +117,37 @@ export const updateOrderStatus = async (req, res) => {
 export const addItemToOrder = async (req, res) => {
   try {
     const { id } = req.params;
-    const { productId, quantity } = req.body;
-    const result = await orderService.addItemToOrder(id, productId, quantity);
-    return successResponse(res, result, 'Item added to order successfully', 201);
+    // Accept either a single item { productId, quantity } or a batch { items: [...] }
+    const items = req.body.items
+      ? req.body.items
+      : [{ productId: req.body.productId, quantity: req.body.quantity ?? 1 }];
+
+    // Add each item and collect results
+    const addedItems = [];
+    for (const item of items) {
+      const result = await orderService.addItemToOrder(id, item.productId, item.quantity ?? 1);
+      addedItems.push(result);
+
+      // Create a KitchenOrder ticket for this item if the product is shown on KDS
+      try {
+        const product = await productService.getProductById(item.productId);
+        if (product.showInKds) {
+          await kitchenService.createKitchenOrder(
+            id,
+            result.orderItem.id,
+            item.productId
+          );
+        }
+      } catch (kitchenErr) {
+        // Non-fatal: log but don't fail the whole request
+        console.error('Failed to create KDS ticket for appended item:', kitchenErr.message);
+      }
+    }
+
+    // Emit KDS refresh event so kitchen display updates in real-time
+    emitEvent('kds:ticket-created', { orderId: id });
+
+    return successResponse(res, { orderId: id, addedItems }, 'Item(s) added to order successfully', 201);
   } catch (error) {
     return errorResponse(res, error.message, 400, error);
   }

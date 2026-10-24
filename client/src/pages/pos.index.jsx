@@ -27,6 +27,7 @@ import {
   Coffee,
   Package,
   CreditCard,
+  AlertTriangle,
 } from "lucide-react";
 
 // Smart emoji mapper based on product name keywords
@@ -93,6 +94,8 @@ export default function OrderView() {
     sendOrderToKitchen,
     updateOrder,
     payOrder,
+    isTakeaway,
+    setTakeawayMode,
   } = useStore();
 
   const navigate = useNavigate();
@@ -107,10 +110,35 @@ export default function OrderView() {
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [emailVal, setEmailVal] = useState("");
+  // Guard: prevents double-tap race condition on "Send to Kitchen"
+  const [isSending, setIsSending] = useState(false);
 
   // Customer capture for new table
   const [captureOpen, setCaptureOpen] = useState(false);
   const [pendingTable, setPendingTable] = useState(null);
+
+  // ── Recipe/Stock guard ────────────────────────────────────────────────────
+  // Local cache: productId → [{ingredientId, qty, unit, name, currentStock}]
+  const [posRecipes, setPosRecipes] = useState({});
+  const [outOfStockModal, setOutOfStockModal] = useState(null); // { productName, missingItems }
+
+  useEffect(() => {
+    const token = localStorage.getItem("token") || sessionStorage.getItem("token") || "";
+    const headers = { Authorization: `Bearer ${token}` };
+    const base = import.meta.env.VITE_API_URL || "";
+    products.forEach((p) => {
+      fetch(`${base}/api/inventory/products/${p.id}/recipe`, { headers })
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => {
+          // API returns { success, data: RecipeItem[] }
+          const items = Array.isArray(d?.data) ? d.data : Array.isArray(d) ? d : [];
+          if (items.length > 0) {
+            setPosRecipes((prev) => ({ ...prev, [p.id]: items }));
+          }
+        })
+        .catch(() => {});
+    });
+  }, [products]);
 
   // Ensure draft order exists for selected table
   useEffect(() => {
@@ -153,29 +181,82 @@ export default function OrderView() {
 
   const handleCustomerCaptured = (customerId) => {
     setCaptureOpen(false);
-    const newId = createDraftOrder(pendingTable, customerId);
+    // If takeaway, create order with TAKEAWAY type and no tableId
+    const orderType = isTakeaway ? 'TAKEAWAY' : 'DINE_IN';
+    const newId = createDraftOrder(isTakeaway ? null : pendingTable, customerId, orderType);
     setDraftOrder(newId);
-    setCurrentTable(pendingTable);
+    if (!isTakeaway) setCurrentTable(pendingTable);
   };
 
   const handleAdd = (pid) => {
-    if (!order?.id) {
+    // ── Stock guard: check recipe ingredients before adding ──────────────────
+    const recipe = posRecipes[pid];
+    if (recipe && recipe.length > 0) {
+      const missing = recipe.filter((ri) => {
+        const stock  = Number(ri.ingredient?.currentStock ?? ri.currentStock ?? Infinity);
+        const needed = Number(ri.quantity ?? ri.qty ?? 0);
+        return stock < needed;
+      });
+      if (missing.length > 0) {
+        const product = products.find((p) => p.id === pid);
+        setOutOfStockModal({
+          productName: product?.name ?? "Item",
+          missingItems: missing.map((ri) => ({
+            name: ri.ingredient?.name ?? ri.name ?? "Ingredient",
+            available: Number(ri.ingredient?.currentStock ?? ri.currentStock ?? 0),
+            required:  Number(ri.quantity ?? ri.qty ?? 0),
+            unit:      ri.ingredient?.unitOfMeasure ?? ri.unit ?? "",
+          })),
+        });
+        return; // block add
+      }
+    }
+
+    // For takeaway: if no draft order exists, open customer capture first
+    if (isTakeaway && !order?.id) {
+      setPendingTable(null);
+      setCaptureOpen(true);
+      return;
+    }
+    if (!isTakeaway && !order?.id) {
       toast.error("Please select a Table first.");
       setShowFloor(true);
       return;
     }
-    // Guard: never add items to a completed or paid order
-    if (order.status === "Paid" || order.status === "Cancelled") {
-      toast.error("This order is already completed and cannot be modified.");
+    // Guard: never add items to a cancelled order
+    if (order.status === "Cancelled") {
+      toast.error("This order is cancelled and cannot be modified.");
       return;
     }
     if (!order.customerId) {
       toast.error("Please assign a Customer to this order first.");
       return;
     }
+    // If adding items to an already-paid order: reset to Draft so cashier collects payment again
+    const wasPaid = order.status === "Paid";
+    if (wasPaid) {
+      updateOrder(order.id, { status: "Draft", sentToKitchen: false });
+    }
     addLine(order.id, pid);
-    updateOrder(order.id, { sentToKitchen: false });
+    // For non-paid orders (already Draft): also clear sentToKitchen so button re-enables
+    if (!wasPaid) {
+      updateOrder(order.id, { sentToKitchen: false });
+    }
   };
+
+  // ── Derived: which products are completely out of stock ───────────────────
+  const outOfStockProductIds = useMemo(() => {
+    const set_ = new Set();
+    Object.entries(posRecipes).forEach(([pid, recipe]) => {
+      const blocked = recipe.some((ri) => {
+        const stock  = Number(ri.ingredient?.currentStock ?? ri.currentStock ?? Infinity);
+        const needed = Number(ri.quantity ?? ri.qty ?? 0);
+        return stock < needed;
+      });
+      if (blocked) set_.add(pid);
+    });
+    return set_;
+  }, [posRecipes]);
 
   const applyCoupon = () => {
     if (!order) return;
@@ -219,15 +300,14 @@ export default function OrderView() {
 
   const handlePayModalClose = (open) => {
     setPayModalOpen(open);
-    if (!open) {
-      // After payment completed and modal closed, reset POS for next order
-      const latestOrder = useStore.getState().orders.find((o) => o.id === draftOrderId);
-      if (latestOrder?.status === "Paid") {
-        setCurrentTable(null);
-        setDraftOrder(null);
-        setShowFloor(true);
-      }
-    }
+  };
+
+  const handleNewOrder = () => {
+    setPayModalOpen(false);
+    setCurrentTable(null);
+    setDraftOrder(null);
+    setTakeawayMode(false);
+    if (!isTakeaway) setShowFloor(true);
   };
 
   const displayOrder = order || {
@@ -241,8 +321,10 @@ export default function OrderView() {
     sentToKitchen: false,
   };
 
-  // Lock the POS UI when the current order is already Paid or Cancelled
-  const isOrderLocked = order?.status === "Paid" || order?.status === "Cancelled";
+  // Only fully lock the UI for Cancelled orders.
+  // Paid orders are NOT locked — cashiers can add more items which resets the order to Draft.
+  const isOrderLocked = order?.status === "Cancelled";
+  const isOrderPaid   = order?.status === "Paid";
 
   // Enrich order lines with product names for payment modal
   const enrichedOrder = order
@@ -274,10 +356,84 @@ export default function OrderView() {
         paymentMethods={paymentMethods}
         onConfirmPay={handleConfirmPay}
         onEmailReceipt={handleEmailReceipt}
+        onNewOrder={handleNewOrder}
       />
 
-      {/* ── Table Status Bar ────────────────────────────────────── */}
-      <TableStatusBar onClick={() => setShowFloor(true)} />
+      {/* ── Out-of-Stock Block Modal ──────────────────────────── */}
+      <Dialog open={!!outOfStockModal} onOpenChange={() => setOutOfStockModal(null)}>
+        <DialogContent className="max-w-sm rounded-3xl border-red-200 bg-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <AlertTriangle className="w-5 h-5" />
+              Cannot Prepare Item
+            </DialogTitle>
+          </DialogHeader>
+          {outOfStockModal && (
+            <div className="space-y-3">
+              <p className="text-sm text-[#2B2118] font-semibold">
+                <span className="font-extrabold text-red-600">{outOfStockModal.productName}</span> cannot
+                be prepared — the following ingredients are out of stock:
+              </p>
+              <div className="space-y-2">
+                {outOfStockModal.missingItems.map((item, i) => (
+                  <div key={i} className="flex items-center justify-between bg-red-50 border border-red-100 rounded-xl px-3 py-2.5 text-sm">
+                    <div>
+                      <div className="font-bold text-red-800">{item.name}</div>
+                      <div className="text-xs text-red-600">
+                        Available: <span className="font-black">{item.available.toFixed(2)} {item.unit}</span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-[#6F4E37]/70">Required</div>
+                      <div className="font-black text-red-700">{item.required} {item.unit}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-[#6F4E37]/60">
+                Please restock the ingredient or remove this item from the menu temporarily.
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <button
+              onClick={() => setOutOfStockModal(null)}
+              className="w-full py-2.5 bg-[#6F4E37] hover:bg-[#5A3A1A] text-white font-extrabold rounded-xl text-sm transition cursor-pointer"
+            >
+              Understood
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Table Status Bar + Takeaway Toggle ─────────────────── */}
+      <div className="flex items-center gap-2">
+        {/* Takeaway Toggle */}
+        <button
+          onClick={() => {
+            const next = !isTakeaway;
+            setTakeawayMode(next);
+            if (next) {
+              // Switch to takeaway: clear table, clear draft
+              setCurrentTable(null);
+              setDraftOrder(null);
+            } else {
+              // Switch back to dine-in: clear takeaway draft
+              setDraftOrder(null);
+            }
+          }}
+          className={`h-9 px-4 rounded-xl border font-bold text-[13px] flex items-center gap-2 transition-all cursor-pointer shrink-0 ${
+            isTakeaway
+              ? "bg-amber-500 border-amber-500 text-white shadow-md shadow-amber-200"
+              : "border-[#6F4E37]/30 bg-white text-[#6F4E37] hover:bg-amber-50 hover:border-amber-400 hover:text-amber-600"
+          }`}
+        >
+          <span className="text-base leading-none">🥡</span>
+          <span>{isTakeaway ? "Takeaway Mode" : "Takeaway"}</span>
+        </button>
+        {/* Table Status Bar (only shown in dine-in mode) */}
+        {!isTakeaway && <TableStatusBar onClick={() => setShowFloor(true)} className="flex-1" />}
+      </div>
 
       {/* ── 2-column POS layout ─────────────────────────────────── */}
       <div className="flex gap-3.5 flex-1 min-h-0 overflow-hidden">
@@ -326,15 +482,15 @@ export default function OrderView() {
 
           {/* Product Grid */}
           <div className="flex-1 p-3 overflow-y-auto min-h-0 pl-4 pr-1 relative">
-            {/* Lock overlay when order is Paid/Cancelled */}
+            {/* Lock overlay — only shown for Cancelled orders */}
             {isOrderLocked && (
               <div className="absolute inset-0 z-10 bg-white/80 backdrop-blur-[2px] flex flex-col items-center justify-center gap-3 rounded-2xl">
-                <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
-                  <span className="text-3xl">✅</span>
+                <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center">
+                  <span className="text-3xl">🚫</span>
                 </div>
                 <div className="text-center">
-                  <p className="font-extrabold text-sm text-emerald-700">Order Paid &amp; Completed</p>
-                  <p className="text-xs text-zinc-500 mt-1">This order is locked. Select a new table to start a fresh order.</p>
+                  <p className="font-extrabold text-sm text-red-700">Order Cancelled</p>
+                  <p className="text-xs text-zinc-500 mt-1">This order has been cancelled. Select a new table to start a fresh order.</p>
                 </div>
                 <button
                   onClick={() => { setCurrentTable(null); setDraftOrder(null); setShowFloor(true); }}
@@ -348,12 +504,25 @@ export default function OrderView() {
               <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                 {filteredProducts.map((p) => {
                   const cat = categories.find((c) => c.id === p.categoryId);
+                  const isOOS = outOfStockProductIds.has(p.id);
                   return (
                     <button
                       key={p.id}
                       onClick={() => handleAdd(p.id)}
-                      className="group relative rounded-2xl bg-[#FAF3E0]/30 hover:bg-[#FAF3E0]/80 border border-[#6F4E37]/20 hover:border-[#6F4E37]/50 p-3 text-left transition-all duration-300 hover:-translate-y-1 shadow-sm hover:shadow-xl cursor-pointer flex flex-col h-[115px] select-none overflow-hidden"
+                      className={`group relative rounded-2xl border p-3 text-left transition-all duration-300 shadow-sm flex flex-col h-[115px] select-none overflow-hidden ${
+                        isOOS
+                          ? "bg-gray-100/80 border-gray-300 cursor-not-allowed opacity-70"
+                          : "bg-[#FAF3E0]/30 hover:bg-[#FAF3E0]/80 border-[#6F4E37]/20 hover:border-[#6F4E37]/50 hover:-translate-y-1 hover:shadow-xl cursor-pointer"
+                      }`}
                     >
+                      {/* Out-of-stock overlay badge */}
+                      {isOOS && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/70 rounded-2xl z-10">
+                          <AlertTriangle className="w-5 h-5 text-red-500 mb-0.5" />
+                          <span className="text-[10px] font-black text-red-600 uppercase tracking-wide">Out of Stock</span>
+                        </div>
+                      )}
+
                       {/* Category dot top-right */}
                       {cat && (
                         <div
@@ -368,12 +537,16 @@ export default function OrderView() {
                       </div>
 
                       {/* Product name */}
-                      <div className="font-bold text-[#2B2118] group-hover:text-[#6F4E37] text-[11px] leading-snug line-clamp-2 flex-1">
+                      <div className={`font-bold text-[11px] leading-snug line-clamp-2 flex-1 ${
+                        isOOS ? "text-gray-500" : "text-[#2B2118] group-hover:text-[#6F4E37]"
+                      }`}>
                         {p.name}
                       </div>
 
                       {/* Price */}
-                      <div className="text-[#6F4E37] font-extrabold text-sm tracking-tight mt-1">
+                      <div className={`font-extrabold text-sm tracking-tight mt-1 ${
+                        isOOS ? "text-gray-400" : "text-[#6F4E37]"
+                      }`}>
                         ₹{p.price.toLocaleString()}
                       </div>
                     </button>
@@ -399,11 +572,25 @@ export default function OrderView() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-extrabold text-[#2B2118]">
-                  {table ? `Table ${table.number}` : "No Table Selected"}
+                  {isTakeaway
+                    ? "🥡 Takeaway Order"
+                    : table
+                    ? `Table ${table.number}`
+                    : "No Table Selected"}
                 </span>
-                {isOrderLocked && (
+                {isTakeaway && (
+                  <span className="text-[10px] font-extrabold bg-amber-100 text-amber-700 border border-amber-300 px-2 py-0.5 rounded-full uppercase tracking-wide">
+                    Parcel
+                  </span>
+                )}
+                {isOrderPaid && (
                   <span className="text-[10px] font-extrabold bg-emerald-100 text-emerald-700 border border-emerald-300 px-2 py-0.5 rounded-full uppercase tracking-wide">
                     Paid ✓
+                  </span>
+                )}
+                {isOrderLocked && (
+                  <span className="text-[10px] font-extrabold bg-red-100 text-red-700 border border-red-300 px-2 py-0.5 rounded-full uppercase tracking-wide">
+                    Cancelled
                   </span>
                 )}
               </div>
@@ -416,7 +603,7 @@ export default function OrderView() {
               onClick={() => setShowFloor(true)}
               className="text-[10px] font-extrabold text-[#6F4E37] bg-[#FAF3E0] border border-[#6F4E37]/25 px-2.5 py-1.5 rounded-xl hover:bg-[#6F4E37]/10 transition cursor-pointer uppercase tracking-wide"
             >
-              {isOrderLocked ? "New Order" : "Change Table"}
+              {isOrderLocked ? "New Order" : isTakeaway ? "New Order" : "Change Table"}
             </button>
           </div>
 
@@ -427,7 +614,9 @@ export default function OrderView() {
                 <Package className="w-8 h-8 stroke-[1.5]" />
                 <span className="font-semibold">Cart is empty</span>
                 <span className="text-center leading-relaxed opacity-75">
-                  {currentTableId
+                  {isTakeaway
+                    ? "Tap any product to add it to this takeaway order"
+                    : currentTableId
                     ? "Tap any product from the menu to add"
                     : "Select a table first, then add products"}
                 </span>
@@ -463,8 +652,9 @@ export default function OrderView() {
                           <button
                             className="h-7 w-7 rounded-lg bg-[#FAF3E0] hover:bg-[#6F4E37]/20 text-[#6F4E37] flex items-center justify-center transition border border-[#6F4E37]/25 cursor-pointer"
                             onClick={() => {
+                              if (order.status === 'Paid') updateOrder(order.id, { status: 'Draft', sentToKitchen: false });
                               setLineQty(order.id, l.productId, l.qty - 1);
-                              updateOrder(order.id, { sentToKitchen: false });
+                              if (order.status !== 'Paid') updateOrder(order.id, { sentToKitchen: false });
                             }}
                           >
                             <Minus className="w-3 h-3" />
@@ -475,8 +665,9 @@ export default function OrderView() {
                           <button
                             className="h-7 w-7 rounded-lg bg-[#FAF3E0] hover:bg-[#6F4E37]/20 text-[#6F4E37] flex items-center justify-center transition border border-[#6F4E37]/25 cursor-pointer"
                             onClick={() => {
+                              if (order.status === 'Paid') updateOrder(order.id, { status: 'Draft', sentToKitchen: false });
                               setLineQty(order.id, l.productId, l.qty + 1);
-                              updateOrder(order.id, { sentToKitchen: false });
+                              if (order.status !== 'Paid') updateOrder(order.id, { sentToKitchen: false });
                             }}
                           >
                             <Plus className="w-3 h-3" />
@@ -493,8 +684,9 @@ export default function OrderView() {
                         <button
                           className="h-7 w-7 rounded-lg hover:bg-red-50 text-zinc-400 hover:text-red-500 flex items-center justify-center transition cursor-pointer border border-transparent hover:border-red-200"
                           onClick={() => {
+                            if (order.status === 'Paid') updateOrder(order.id, { status: 'Draft', sentToKitchen: false });
                             setLineQty(order.id, l.productId, 0);
-                            updateOrder(order.id, { sentToKitchen: false });
+                            if (order.status !== 'Paid') updateOrder(order.id, { sentToKitchen: false });
                           }}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -517,51 +709,84 @@ export default function OrderView() {
           <div className="space-y-3 shrink-0 pt-3 border-t border-[#6F4E37]/20">
 
             {isOrderLocked ? (
-              /* ── Locked / Paid state ── */
+              /* ── Cancelled state ── */
+              <div className="flex flex-col items-center gap-3 py-2">
+                <div className="w-full bg-red-50 border border-red-200 rounded-2xl px-4 py-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-extrabold text-red-700">Order Cancelled</p>
+                    <p className="text-[11px] text-red-600/70 mt-0.5">Select a new table to start over</p>
+                  </div>
+                  <span className="text-2xl">🚫</span>
+                </div>
+                <button
+                  onClick={() => {
+                    setCurrentTable(null);
+                    setDraftOrder(null);
+                    setTakeawayMode(false);
+                    setShowFloor(true);
+                  }}
+                  className="w-full bg-[#6F4E37] hover:bg-[#5A3A1A] text-white font-extrabold py-3 rounded-2xl text-sm transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
+                >
+                  Start New Order
+                </button>
+              </div>
+            ) : isOrderPaid ? (
+              /* ── Paid state: show summary badge + allow adding more items ── */
               <div className="flex flex-col items-center gap-3 py-2">
                 <div className="w-full bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-extrabold text-emerald-700">Order Completed</p>
+                    <p className="text-xs font-extrabold text-emerald-700">✓ Payment Done</p>
                     <p className="text-[11px] text-emerald-600/70 mt-0.5">
-                      Total paid: ₹{Math.round(displayOrder.total)}
+                      Paid: ₹{Math.round(displayOrder.total)} · Tap a product to add more
                     </p>
                   </div>
                   <span className="text-2xl">✅</span>
                 </div>
                 <button
-                  onClick={() => { setCurrentTable(null); setDraftOrder(null); setShowFloor(true); }}
-                  className="w-full bg-[#6F4E37] hover:bg-[#5A3A1A] text-white font-extrabold py-3 rounded-2xl text-sm transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
+                  onClick={() => {
+                    setCurrentTable(null);
+                    setDraftOrder(null);
+                    setTakeawayMode(false);
+                    if (!isTakeaway) setShowFloor(true);
+                  }}
+                  className="w-full bg-[#6F4E37] hover:bg-[#5A3A1A] text-white font-extrabold py-2.5 rounded-2xl text-xs transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
                 >
-                  Start New Order
+                  Done — Start New Order
                 </button>
               </div>
             ) : (
               <>
                 {/* Action row */}
                 <div className="grid grid-cols-3 gap-2">
-                  {/* Send to kitchen */}
-                  {order?.sentToKitchen ? (
+                  {/* Send to kitchen — guarded with isSending to prevent double-tap */}
+                  {order?.sentToKitchen && !isSending ? (
                     <span className="col-span-3 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-extrabold px-3 py-2.5 rounded-xl flex items-center justify-center gap-1 select-none">
                       ✓ Sent to Kitchen
                     </span>
                   ) : (
                     <button
+                      disabled={isSending}
                       onClick={async () => {
                         if (!order || order.lines.length === 0) {
                           toast.error("Cart is empty");
                           return;
                         }
+                        if (isSending) return; // extra guard
+                        setIsSending(true);
                         try {
                           await sendOrderToKitchen(order.id);
                           toast.success("Order sent to kitchen!");
                         } catch (err) {
                           toast.error(err.message || "Failed to send order");
+                        } finally {
+                          setIsSending(false);
                         }
                       }}
-                      className="col-span-3 bg-[#6F4E37]/10 text-[#6F4E37] hover:bg-[#6F4E37] hover:text-white border border-[#6F4E37]/25 text-xs font-extrabold px-3 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="col-span-3 bg-[#6F4E37]/10 text-[#6F4E37] hover:bg-[#6F4E37] hover:text-white border border-[#6F4E37]/25 text-xs font-extrabold px-3 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <Send className="w-3.5 h-3.5" />
-                      Send to Kitchen
+                      {isSending
+                        ? <><span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full" /> Sending…</>
+                        : <><Send className="w-3.5 h-3.5" /> Send to Kitchen</>}
                     </button>
                   )}
 
@@ -686,8 +911,8 @@ export default function OrderView() {
                 className="w-full text-left p-3 hover:bg-[#FAF3E0] border border-transparent hover:border-[#6F4E37]/30 rounded-xl text-sm transition cursor-pointer"
               >
                 <div className="font-extrabold text-[#2B2118]">{c.name}</div>
-                <div className="text-xs text-zinc-500 mt-0.5">
-                  {c.email} · {c.phone}
+                <div className="text-xs text-[#6F4E37]/60 mt-0.5">
+                  {c.phone || "No phone"}{c.email ? ` · ${c.email}` : ""}
                 </div>
               </button>
             ))}

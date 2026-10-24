@@ -4,14 +4,16 @@ import { authApi } from "@/lib/api";
 import { toast } from "sonner";
 import { Eye, EyeOff, CheckCircle, CheckCheck, X as XIcon } from "lucide-react";
 
-// Password rules for strong password
+// Password rules for strong password using Regex
 const PWD_RULES = [
-  { id: "length",  label: "At least 8 characters",   test: (v) => v.length >= 8 },
-  { id: "upper",   label: "One uppercase letter (A-Z)", test: (v) => /[A-Z]/.test(v) },
-  { id: "lower",   label: "One lowercase letter (a-z)", test: (v) => /[a-z]/.test(v) },
-  { id: "number",  label: "One number (0-9)",           test: (v) => /[0-9]/.test(v) },
-  { id: "special", label: "One special character (!@#$...)", test: (v) => /[!@#$%^&*(),.?":{}|<>_\-]/.test(v) },
+  { id: "length",  label: "At least 8 characters",            regex: /.{8,}/, test: (v) => /.{8,}/.test(v) },
+  { id: "upper",   label: "One uppercase letter (A-Z)",       regex: /[A-Z]/, test: (v) => /[A-Z]/.test(v) },
+  { id: "lower",   label: "One lowercase letter (a-z)",       regex: /[a-z]/, test: (v) => /[a-z]/.test(v) },
+  { id: "number",  label: "One number (0-9)",                 regex: /[0-9]/, test: (v) => /[0-9]/.test(v) },
+  { id: "special", label: "One special character (!@#$...)",  regex: /[!@#$%^&*(),.?":{}|<>_\-]/, test: (v) => /[!@#$%^&*(),.?":{}|<>_\-]/.test(v) },
 ];
+
+const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>_\-]).{8,}$/;
 
 function passwordStrength(pwd) {
   return PWD_RULES.filter((r) => r.test(pwd)).length;
@@ -24,6 +26,7 @@ export default function RegisterPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [pwdFocused, setPwdFocused] = useState(false);
+  const [emailError, setEmailError] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => { document.title = "Register | Cafe POS"; }, []);
@@ -32,20 +35,39 @@ export default function RegisterPage() {
 
   const handleSubmit = async (ev) => {
     ev.preventDefault();
-    if (!form.name || !form.email || !form.password) { toast.error("Please fill in all fields."); return; }
-    if (form.password !== form.confirmPassword) { toast.error("Passwords do not match."); return; }
-    // Strong password check
-    const failedRules = PWD_RULES.filter((r) => !r.test(form.password));
-    if (failedRules.length > 0) {
+    if (!form.name.trim() || !form.email.trim() || !form.password) {
+      toast.error("Please fill in all fields.");
+      return;
+    }
+    if (form.password !== form.confirmPassword) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+
+    // Strong password check with regex
+    if (!STRONG_PASSWORD_REGEX.test(form.password)) {
+      const failedRules = PWD_RULES.filter((r) => !r.test(form.password));
       toast.error(`Password needs: ${failedRules.map((r) => r.label).join(", ")}`);
       return;
     }
+
     setIsLoading(true);
+    setEmailError(false);
     try {
-      await authApi.register({ name: form.name, email: form.email, password: form.password });
+      await authApi.register({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        password: form.password,
+      });
       setSubmitted(true);
     } catch (err) {
-      toast.error(err.message || "Registration failed. Please try again.");
+      const msg = err.message || "Registration failed. Please try again.";
+      if (msg.toLowerCase().includes("already registered") || msg.toLowerCase().includes("already exists")) {
+        setEmailError(true);
+        toast.error("This email is already registered. Try another or sign in.");
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -142,7 +164,52 @@ export default function RegisterPage() {
 
             <div className="auth-field">
               <label htmlFor="reg-email" className="auth-label">Email Address</label>
-              <input id="reg-email" type="email" placeholder="name@cafe.com" value={form.email} onChange={update("email")} required autoComplete="email" className="auth-input" />
+              <input
+                id="reg-email"
+                type="email"
+                placeholder="name@cafe.com"
+                value={form.email}
+                onChange={(e) => {
+                  if (emailError) setEmailError(false);
+                  update("email")(e);
+                }}
+                required
+                autoComplete="email"
+                className="auth-input"
+                style={emailError ? { borderColor: "#ef4444", boxShadow: "0 0 0 1px #ef4444" } : {}}
+              />
+              {emailError && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    padding: "8px 12px",
+                    background: "#fef2f2",
+                    border: "1px solid #fecaca",
+                    borderRadius: 8,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    flexWrap: "wrap",
+                    gap: 6,
+                  }}
+                >
+                  <span style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>
+                    Already registered. Try another or
+                  </span>
+                  <Link
+                    to="/login"
+                    style={{
+                      fontSize: 12,
+                      color: "#6F4E37",
+                      fontWeight: 700,
+                      textDecoration: "underline",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Sign In
+                  </Link>
+                </div>
+              )}
             </div>
 
             <div className="auth-field">

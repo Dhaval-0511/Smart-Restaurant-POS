@@ -1,29 +1,41 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { Toaster } from 'sonner';
 import { useStore } from './lib/store';
+import { LowStockBanner } from './components/LowStockBanner';
 
-// Pages
-import HomePage from './pages/home.jsx';
-import AuthPage from './pages/auth.signin.jsx';
-import RegisterPage from './pages/auth.register.jsx';
-import ForgotPasswordPage from './pages/auth.forgot-password.jsx';
-import ResetPasswordPage from './pages/auth.reset-password.jsx';
-import KdsPage from './pages/kds.jsx';
-import PosLayout from './pages/pos.jsx';
-import PosIndexPage from './pages/pos.index.jsx';
-import PosOrdersPage from './pages/pos.orders.jsx';
-import PosCustomersPage from './pages/pos.customers.jsx';
-import PosTablesPage from './pages/pos.tables.jsx';
-import AdminLayout from './pages/admin.jsx';
-import AdminProductsPage from './pages/admin.products.jsx';
-import AdminCategoriesPage from './pages/admin.categories.jsx';
-import AdminPaymentMethodsPage from './pages/admin.payment-methods.jsx';
-import AdminCouponsPage from './pages/admin.coupons.jsx';
-import AdminBookingPage from './pages/admin.booking.jsx';
-import AdminUsersPage from './pages/admin.users.jsx';
-import AdminReportsPage from './pages/admin.reports.jsx';
-import AdminInventoryPage from './pages/admin.inventory.jsx';
+// Lazy-loaded Pages (code-split to minimize startup memory overhead)
+const HomePage = lazy(() => import('./pages/home.jsx'));
+const AuthPage = lazy(() => import('./pages/auth.signin.jsx'));
+const RegisterPage = lazy(() => import('./pages/auth.register.jsx'));
+const ForgotPasswordPage = lazy(() => import('./pages/auth.forgot-password.jsx'));
+const ResetPasswordPage = lazy(() => import('./pages/auth.reset-password.jsx'));
+const KdsPage = lazy(() => import('./pages/kds.jsx'));
+const PosLayout = lazy(() => import('./pages/pos.jsx'));
+const PosIndexPage = lazy(() => import('./pages/pos.index.jsx'));
+const PosOrdersPage = lazy(() => import('./pages/pos.orders.jsx'));
+const PosCustomersPage = lazy(() => import('./pages/pos.customers.jsx'));
+const PosTablesPage = lazy(() => import('./pages/pos.tables.jsx'));
+const AdminLayout = lazy(() => import('./pages/admin.jsx'));
+const AdminProductsPage = lazy(() => import('./pages/admin.products.jsx'));
+const AdminCategoriesPage = lazy(() => import('./pages/admin.categories.jsx'));
+const AdminPaymentMethodsPage = lazy(() => import('./pages/admin.payment-methods.jsx'));
+const AdminCouponsPage = lazy(() => import('./pages/admin.coupons.jsx'));
+const AdminBookingPage = lazy(() => import('./pages/admin.booking.jsx'));
+const AdminUsersPage = lazy(() => import('./pages/admin.users.jsx'));
+const AdminReportsPage = lazy(() => import('./pages/admin.reports.jsx'));
+const AdminInventoryPage = lazy(() => import('./pages/admin.inventory.jsx'));
+
+function PageLoader() {
+  return (
+    <div className="flex h-screen w-full items-center justify-center bg-[#FAF3E0] text-[#6F4E37]">
+      <div className="flex flex-col items-center gap-3">
+        <div className="h-9 w-9 animate-spin rounded-full border-4 border-[#6F4E37] border-t-transparent" />
+        <span className="text-xs font-bold tracking-wider uppercase opacity-75">Loading...</span>
+      </div>
+    </div>
+  );
+}
 
 function AdminIndexRedirect() {
   const user = useStore((s) => s.users.find((u) => u.id === s.currentUserId));
@@ -45,40 +57,43 @@ function App() {
 
   return (
     <BrowserRouter>
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/" element={<HomePage />} />
-        <Route path="/login" element={<AuthPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/kds" element={<KdsPage />} />
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/" element={<HomePage />} />
+          <Route path="/login" element={<AuthPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/kds" element={<KdsPage />} />
 
-        {/* POS Nested Routes */}
-        <Route path="/pos" element={<PosLayout />}>
-          <Route index element={<PosIndexPage />} />
-          <Route path="orders" element={<PosOrdersPage />} />
-          <Route path="customers" element={<PosCustomersPage />} />
-          <Route path="tables" element={<PosTablesPage />} />
-        </Route>
+          {/* POS Nested Routes */}
+          <Route path="/pos" element={<PosLayout />}>
+            <Route index element={<PosIndexPage />} />
+            <Route path="orders" element={<PosOrdersPage />} />
+            <Route path="customers" element={<PosCustomersPage />} />
+            <Route path="tables" element={<PosTablesPage />} />
+          </Route>
 
-        {/* Admin Nested Routes */}
-        <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<AdminIndexRedirect />} />
-          <Route path="products" element={<AdminProductsPage />} />
-          <Route path="categories" element={<AdminCategoriesPage />} />
-          <Route path="payment-methods" element={<AdminPaymentMethodsPage />} />
-          <Route path="coupons" element={<AdminCouponsPage />} />
-          <Route path="booking" element={<AdminBookingPage />} />
-          <Route path="users" element={<AdminUsersPage />} />
-          <Route path="reports" element={<AdminReportsPage />} />
-          <Route path="inventory" element={<AdminInventoryPage />} />
-        </Route>
+          {/* Admin Nested Routes */}
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route index element={<AdminIndexRedirect />} />
+            <Route path="products" element={<AdminProductsPage />} />
+            <Route path="categories" element={<AdminCategoriesPage />} />
+            <Route path="payment-methods" element={<AdminPaymentMethodsPage />} />
+            <Route path="coupons" element={<AdminCouponsPage />} />
+            <Route path="booking" element={<AdminBookingPage />} />
+            <Route path="users" element={<AdminUsersPage />} />
+            <Route path="reports" element={<AdminReportsPage />} />
+            <Route path="inventory" element={<AdminInventoryPage />} />
+          </Route>
 
-        {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
       <Toaster richColors position="top-right" />
+      <LowStockBanner />
     </BrowserRouter>
   );
 }

@@ -7,8 +7,9 @@ export const validateRequest = (schema) => {
       req.body = validated;
       next();
     } catch (error) {
-      return errorResponse(res, 'Validation failed', 400, {
-        message: error.errors[0]?.message || 'Invalid request',
+      const firstErrorMessage = error.errors?.[0]?.message || 'Validation failed';
+      return errorResponse(res, firstErrorMessage, 400, {
+        message: firstErrorMessage,
       });
     }
   };

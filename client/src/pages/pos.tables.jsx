@@ -3,8 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { useStore } from "@/lib/store";
 import {
   Users, Clock, Coffee, UtensilsCrossed, CreditCard,
-  Phone, Mail, User, IndianRupee, CheckCircle2, Utensils
+  Phone, Mail, User, IndianRupee, CheckCircle2, Utensils, LogOut
 } from "lucide-react";
+import { toast } from "sonner";
+import { orderApi } from "@/lib/api";
 
 export default function TablesView() {
   const floors = useStore((s) => s.floors);
@@ -13,6 +15,7 @@ export default function TablesView() {
   const customers = useStore((s) => s.customers);
   const setCurrentTable = useStore((s) => s.setCurrentTable);
   const setDraftOrder = useStore((s) => s.setDraftOrder);
+  const updateOrder = useStore((s) => s.updateOrder);
   const navigate = useNavigate();
 
   const [activeFloorId, setActiveFloorId] = useState(null);
@@ -59,8 +62,28 @@ export default function TablesView() {
     navigate("/pos");
   };
 
+  const handleMakeVacant = async (e, tableId, orderId) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to make this table vacant?")) return;
+    try {
+      if (orderId && orderId.length > 15) {
+        await orderApi.update(orderId, { status: "CANCELLED" }).catch((err) => {
+          console.warn("Could not cancel on server:", err);
+        });
+      }
+      updateOrder(orderId, { status: "Cancelled", tableId: null });
+      if (useStore.getState().currentTableId === tableId) {
+        setCurrentTable(null);
+        setDraftOrder(null);
+      }
+      toast.success("Table is now vacant");
+    } catch (err) {
+      toast.error("Failed to make table vacant");
+    }
+  };
+
   return (
-    <div className="p-6 bg-[#FAF3E0] text-[#2B2118] min-h-[calc(100vh-4rem)] space-y-5 select-none">
+    <div className="p-6 bg-[#FAF3E0] text-[#2B2118] h-full overflow-y-auto pb-16 space-y-5 select-none">
 
       {/* Header + Stats */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-3xl border border-[#6F4E37]/20 shadow-md">
@@ -136,7 +159,7 @@ export default function TablesView() {
 
       {/* Table Grid */}
       {filteredTables.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
           {filteredTables.map((t) => {
             const draftOrder = getDraftOrder(t.id);
             const isBusy = !!draftOrder;
@@ -233,15 +256,25 @@ export default function TablesView() {
                   </div>
                 </div>
 
-                {/* Take Payment Button */}
-                <div className="px-3 pb-3">
+                {/* Take Payment & Make Vacant Buttons */}
+                <div className="px-3 pb-3 flex items-center gap-2">
                   <button
                     onClick={(e) => handleTakePayment(e, t.id, draftOrder.id)}
-                    className="w-full py-2.5 bg-[#6F4E37] hover:bg-[#6F4E37]/90 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all duration-200 cursor-pointer group-hover:shadow-md"
+                    className="flex-1 py-2.5 bg-[#6F4E37] hover:bg-[#6F4E37]/90 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all duration-200 cursor-pointer group-hover:shadow-md"
                   >
                     <CreditCard className="w-4 h-4" />
                     Take Payment
                   </button>
+                  {customer && (
+                    <button
+                      onClick={(e) => handleMakeVacant(e, t.id, draftOrder.id)}
+                      title="Customer left — make table vacant"
+                      className="px-3 py-2.5 bg-amber-50 hover:bg-rose-50 text-amber-800 hover:text-rose-700 border border-amber-200 hover:border-rose-300 font-bold rounded-xl text-xs flex items-center justify-center gap-1 transition-all duration-200 cursor-pointer shrink-0"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      Vacant
+                    </button>
+                  )}
                 </div>
               </div>
             );

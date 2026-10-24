@@ -1,10 +1,25 @@
 import prisma from '../config/database.js';
 
-// Get start and end of a given date (defaults to today) in UTC
+// Get start and end of a given date (defaults to today) in UTC.
+// IMPORTANT: new Date("YYYY-MM-DD") parses as UTC midnight, so getDate()
+// in IST can differ by ±1 day. We parse the string directly to avoid this.
 const getDayBounds = (dateStr) => {
-  const d = dateStr ? new Date(dateStr) : new Date();
-  const start = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0));
-  const end   = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999));
+  let year, month, day;
+  if (dateStr) {
+    // Parse YYYY-MM-DD directly so we don't depend on timezone interpretation
+    const parts = dateStr.split('-');
+    year  = parseInt(parts[0], 10);
+    month = parseInt(parts[1], 10) - 1; // 0-indexed
+    day   = parseInt(parts[2], 10);
+  } else {
+    // Default to today in server LOCAL time (IST)
+    const now = new Date();
+    year  = now.getFullYear();
+    month = now.getMonth();
+    day   = now.getDate();
+  }
+  const start = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+  const end   = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
   return { start, end };
 };
 
@@ -52,7 +67,7 @@ export const getAllKitchenOrders = async (status = null, date = null) => {
         select: { id: true, name: true },
       },
       order: {
-        select: { id: true, orderNumber: true, tableId: true },
+        select: { id: true, orderNumber: true, tableId: true, orderType: true },
       },
       assignedTo: {
         select: { id: true, name: true },

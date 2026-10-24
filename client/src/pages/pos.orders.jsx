@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useStore } from "@/lib/store";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,9 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
-import { Search, Trash2, Edit, Clock, ChefHat, CheckCircle2, Flame, Timer } from "lucide-react";
+import { Search, Trash2, Edit, Clock, ChefHat, CheckCircle2, Flame, Timer, Printer, Download } from "lucide-react";
+import { ReceiptPrint } from "@/components/ReceiptPrint";
+// jsPDF/autoTable loaded on-demand only when PDF is downloaded
 
 // ─── Live Kitchen Status Badge ─────────────────────────────────────────────
 
@@ -165,6 +168,8 @@ export default function OrdersPage() {
   const orders = useStore((s) => s.orders);
   const customers = useStore((s) => s.customers);
   const products = useStore((s) => s.products);
+  const paymentMethods = useStore((s) => s.paymentMethods);
+  const tables = useStore((s) => s.tables);
   const deleteOrder = useStore((s) => s.deleteOrder);
   const setDraftOrder = useStore((s) => s.setDraftOrder);
   const setCurrentTable = useStore((s) => s.setCurrentTable);
@@ -173,6 +178,69 @@ export default function OrdersPage() {
 
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState(null);
+  const [page, setPage] = useState(1);
+  const [printOrder, setPrintOrder] = useState(null);
+  const PAGE_SIZE = 10;
+
+  const handlePrintOrder = (ord) => {
+    setPrintOrder(ord);
+    setTimeout(() => {
+      window.print();
+    }, 80);
+  };
+
+  const handleDownloadPdf = async (ord) => {
+    try {
+      const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+        import("jspdf"),
+        import("jspdf-autotable"),
+      ]);
+      const doc = new jsPDF();
+      const customerObj = customers.find((c) => c.id === ord.customerId);
+      const tableObj = tables.find((t) => t.id === ord.tableId);
+      const tableStr = ord.orderType === "TAKEAWAY" ? "Takeaway" : tableObj ? `Table ${tableObj.number}` : "Dine-in";
+      const dateStr = ord.createdAt ? format(new Date(ord.createdAt), "PPP p") : format(new Date(), "PPP p");
+
+      doc.setFontSize(18); doc.setTextColor(111, 78, 55);
+      doc.text("CAFE POS – TAX INVOICE", 14, 20);
+      doc.setFontSize(10); doc.setTextColor(100);
+      doc.text(`Order: #${ord.number || ord.id.slice(0, 6)}   |   Date: ${dateStr}`, 14, 28);
+      doc.text(`Customer: ${customerObj?.name || "Guest"}   |   Type: ${tableStr}`, 14, 34);
+
+      const itemsData = (ord.lines || []).map((l, idx) => {
+        const prod = products.find((p) => p.id === l.productId);
+        const qty = Number(l.qty || 0);
+        const price = Number(l.unitPrice || 0);
+        return [idx + 1, prod?.name || "Item", qty, `₹${price.toFixed(2)}`, `₹${(qty * price).toFixed(2)}`];
+      });
+
+      autoTable(doc, {
+        startY: 40,
+        head: [["#", "Item", "Qty", "Price", "Total"]],
+        body: itemsData,
+        headStyles: { fillColor: [111, 78, 55] },
+        alternateRowStyles: { fillColor: [250, 243, 224] },
+      });
+
+      const finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY : 80;
+      doc.setFontSize(10); doc.setTextColor(80);
+      const sub = Number(ord.subtotal || 0).toFixed(2);
+      const tax = Number(ord.tax || 0).toFixed(2);
+      const tot = Number(ord.total || 0).toFixed(2);
+      doc.text(`Subtotal: ₹${sub}`, 135, finalY + 10);
+      doc.text(`GST (5%): ₹${tax}`, 135, finalY + 16);
+      doc.setFontSize(12); doc.setTextColor(111, 78, 55);
+      doc.text(`Total Paid: ₹${tot}`, 135, finalY + 24);
+
+      doc.save(`Bill_${ord.number || ord.id.slice(0, 6)}.pdf`);
+    } catch (err) {
+      console.error("PDF download failed:", err);
+      alert("PDF download failed. Please try again.");
+    }
+  };
+
+  // Reset to page 1 whenever search query changes
+  useEffect(() => { setPage(1); }, [q]);
 
   // Keep KDS data fresh while this page is open
   useEffect(() => {
@@ -191,6 +259,11 @@ export default function OrdersPage() {
     );
   });
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const startRow  = filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const endRow    = Math.min(page * PAGE_SIZE, filtered.length);
+
   const order = orders.find((o) => o.id === selected);
 
   const editOrder = (id) => {
@@ -202,46 +275,56 @@ export default function OrdersPage() {
   };
 
   return (
-    <div className="p-6 bg-[#FAF3E0] text-[#2B2118] min-h-[calc(100vh-4rem)] max-w-6xl mx-auto space-y-4 select-none">
+    <div className="flex flex-col h-[calc(100vh-4rem)] bg-[#FAF3E0] text-[#2B2118] select-none">
+      {/* ── Fixed top section ─────────────────────────────────── */}
+      <div className="px-6 pt-6 pb-3 shrink-0 max-w-6xl w-full mx-auto space-y-3">
 
-      {/* Header */}
-      <div className="flex items-center justify-between mb-2">
-        <h1 className="text-2xl font-extrabold text-[#6F4E37] tracking-tight">Orders</h1>
-        <div className="relative w-64">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-          <Input
-            placeholder="Search by order # or customer…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="pl-9 bg-[#FAF3E0] text-[#2B2118] border-[#6F4E37]/30 focus:border-[#6F4E37] focus:bg-white rounded-xl"
-          />
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-extrabold text-[#6F4E37] tracking-tight">Orders</h1>
+            <p className="text-xs text-[#6F4E37]/60 mt-0.5 font-medium">
+              {filtered.length} of {orders.length} orders{q ? " matching search" : ""}
+            </p>
+          </div>
+          <div className="relative w-64">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <Input
+              placeholder="Search by order # or customer…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="pl-9 bg-[#FAF3E0] text-[#2B2118] border-[#6F4E37]/30 focus:border-[#6F4E37] focus:bg-white rounded-xl"
+            />
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center gap-4 text-[11px] font-semibold text-[#6F4E37]/70 bg-white border border-[#6F4E37]/15 rounded-2xl px-4 py-2.5 w-fit shadow-sm">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-slate-400" />To Cook
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-amber-500" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+            </span>
+            Preparing (live timer)
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />Ready for Pickup
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-[#6F4E37]/30" />Not yet sent to kitchen
+          </div>
         </div>
       </div>
 
-      {/* Legend */}
-      <div className="flex items-center gap-4 text-[11px] font-semibold text-[#6F4E37]/70 bg-white border border-[#6F4E37]/15 rounded-2xl px-4 py-2.5 w-fit shadow-sm">
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-slate-400" />To Cook
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-amber-500" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
-          </span>
-          Preparing (live timer)
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-500" />Ready for Pickup
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-[#6F4E37]/30" />Not yet sent to kitchen
-        </div>
-      </div>
-
-      {/* Orders table */}
-      <Card className="bg-white border border-[#6F4E37]/25 rounded-3xl overflow-hidden shadow-md">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+      {/* ── Scrollable card fills remaining height ──────────────── */}
+      <div className="flex-1 min-h-0 px-6 pb-6 max-w-6xl w-full mx-auto">
+        <Card className="bg-white border border-[#6F4E37]/25 rounded-3xl overflow-hidden shadow-md h-full flex flex-col">
+          {/* Table — scrolls inside the card */}
+          <div className="flex-1 overflow-auto min-h-0">
+            <table className="w-full text-sm">
             <thead className="bg-[#FAF3E0] border-b border-[#6F4E37]/20">
               <tr>
                 <th className="p-3 text-left font-bold text-[#6F4E37]/80">Date</th>
@@ -256,7 +339,7 @@ export default function OrdersPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((o) => {
+              {paginated.map((o) => {
                 const c = customers.find((x) => x.id === o.customerId);
                 const t = useStore.getState().tables.find((x) => x.id === o.tableId);
 
@@ -281,7 +364,11 @@ export default function OrdersPage() {
                   >
                     <td className="p-3 text-[#6F4E37]/80 text-xs">{dateStr}</td>
                     <td className="p-3 font-mono font-bold text-[#6F4E37]">#{orderNum}</td>
-                    <td className="p-3 font-bold text-[#6F4E37]">{t ? `T-${t.number}` : "-"}</td>
+                    <td className="p-3 font-bold text-[#6F4E37]">
+                      {o.orderType === "TAKEAWAY"
+                        ? <span className="text-amber-600">🥡 Takeaway</span>
+                        : t ? `T-${t.number}` : "-"}
+                    </td>
                     <td className="p-3 text-[#2B2118] font-semibold">{c?.name ?? "-"}</td>
                     <td className="p-3 text-right font-extrabold text-[#6F4E37]">₹{totalAmt}</td>
 
@@ -314,17 +401,69 @@ export default function OrdersPage() {
                 );
               })}
 
-              {!filtered.length && (
+              {!paginated.length && (
                 <tr>
                   <td colSpan={7} className="p-10 text-center text-zinc-500 font-semibold">
-                    No orders found.
+                    {q ? "No orders match your search." : "No orders yet."}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
-        </div>
-      </Card>
+          </div>
+
+          {/* ── Pagination bar — always pinned to bottom of card ── */}
+          <div className="shrink-0 flex items-center justify-between px-4 py-3 border-t border-[#6F4E37]/15 bg-[#FAF3E0]/40">
+            <span className="text-xs font-semibold text-[#6F4E37]/70">
+              {filtered.length === 0
+                ? "No records"
+                : <>Showing <span className="font-extrabold text-[#6F4E37]">{startRow}–{endRow}</span> of{" "}
+                   <span className="font-extrabold text-[#6F4E37]">{filtered.length}</span> orders</>
+              }
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3 py-1.5 text-xs font-bold rounded-xl border border-[#6F4E37]/25 bg-white text-[#6F4E37] hover:bg-[#6F4E37]/10 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+              >
+                ← Prev
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                .reduce((acc, p, idx, arr) => {
+                  if (idx > 0 && p - arr[idx - 1] > 1) acc.push('...');
+                  acc.push(p);
+                  return acc;
+                }, [])
+                .map((p, i) =>
+                  p === '...' ? (
+                    <span key={`dots-${i}`} className="px-1 text-xs text-[#6F4E37]/50">…</span>
+                  ) : (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p)}
+                      className={`w-8 h-8 text-xs font-bold rounded-xl border transition cursor-pointer ${
+                        page === p
+                          ? 'bg-[#6F4E37] text-white border-[#6F4E37] shadow-sm'
+                          : 'bg-white text-[#6F4E37] border-[#6F4E37]/25 hover:bg-[#6F4E37]/10'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="px-3 py-1.5 text-xs font-bold rounded-xl border border-[#6F4E37]/25 bg-white text-[#6F4E37] hover:bg-[#6F4E37]/10 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+        </Card>
+      </div>
 
       {/* Order Detail Modal */}
       <Dialog open={!!order} onOpenChange={(v) => !v && setSelected(null)}>
@@ -379,6 +518,21 @@ export default function OrdersPage() {
                     {order.status || "Unknown"}
                   </Badge>
                 </div>
+
+                {order.status === "Paid" && (
+                  <div className="bg-[#FAF3E0]/50 rounded-xl px-3 py-2 border border-[#6F4E37]/10 col-span-2 flex justify-between items-center">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider font-bold text-[#6F4E37]/50">Payment Method</div>
+                      <div className="font-bold text-[#2B2118] text-xs">
+                        {paymentMethods.find((p) => p.id === order.paymentMethodId)?.name || order.paymentMethod || "Paid"}
+                        {order.paymentRef ? ` (Ref: ${order.paymentRef})` : ""}
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                      ✓ Settled
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Kitchen detail panel */}
@@ -440,8 +594,39 @@ export default function OrdersPage() {
               </Button>
             </DialogFooter>
           )}
+
+          {order?.status === "Paid" && (
+            <DialogFooter className="flex gap-2">
+              <Button
+                onClick={() => handlePrintOrder(order)}
+                className="bg-[#6F4E37] hover:bg-[#5A3A1A] text-white flex-1 font-bold cursor-pointer rounded-xl py-2"
+              >
+                <Printer className="w-4 h-4 mr-1.5 inline" /> Print Bill
+              </Button>
+              <Button
+                onClick={() => handleDownloadPdf(order)}
+                variant="outline"
+                className="border-[#6F4E37]/30 text-[#6F4E37] hover:bg-[#FAF3E0] flex-1 font-bold cursor-pointer rounded-xl py-2"
+              >
+                <Download className="w-4 h-4 mr-1.5 inline" /> Download PDF
+              </Button>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
+
+      {/* Printable thermal receipt portal */}
+      {printOrder && typeof document !== "undefined" && createPortal(
+        <ReceiptPrint
+          order={printOrder}
+          customer={customers.find((c) => c.id === printOrder.customerId)}
+          table={tables.find((t) => t.id === printOrder.tableId)}
+          paymentMethodName={paymentMethods.find((p) => p.id === printOrder.paymentMethodId)?.name || printOrder.paymentMethod || "Paid"}
+          paymentRef={printOrder.paymentRef}
+          products={products}
+        />,
+        document.body
+      )}
     </div>
   );
 }

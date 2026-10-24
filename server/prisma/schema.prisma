@@ -171,6 +171,7 @@ model Session {
 model Order {
   id               String         @id @default(uuid())
   orderNumber      String         @unique
+  orderType        OrderType      @default(DINE_IN)
   sessionId        String
   tableId          String?
   customerId       String?
@@ -275,6 +276,11 @@ enum OrderStatus {
   DRAFT
   PAID
   CANCELLED
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
 }
 
 enum KitchenStatus {
