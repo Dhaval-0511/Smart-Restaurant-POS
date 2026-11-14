@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Trash2, Archive, Key, Loader2, UserCheck, UserX, Users, UserPlus, Clock } from "lucide-react";
+import { Plus, Trash2, Key, Loader2, UserCheck, UserX, Users, UserPlus, Clock, ShieldOff, ShieldCheck } from "lucide-react";
 import { authApi } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -65,6 +65,7 @@ export default function UsersPage() {
   const [pwdFor, setPwdFor] = useState(null);
   const [pwd, setPwd] = useState("");
   const [deleteFor, setDeleteFor] = useState(null);
+  const [deactivateFor, setDeactivateFor] = useState(null); // user to activate/deactivate
   const [actionLoadingId, setActionLoadingId] = useState(null);
 
   useEffect(() => {
@@ -181,23 +182,30 @@ export default function UsersPage() {
     }
   };
 
-  const archive = async (id) => {
+  const toggleActive = async (u) => {
+    const willDeactivate = u.active;
     try {
-      const u = users.find((x) => x.id === id);
-      if (!u) return;
-      const res = await fetch(`${BASE_URL}/auth/employees/${id}`, {
+      setActionLoadingId(u.id);
+      const res = await fetch(`${BASE_URL}/auth/employees/${u.id}`, {
         method: "PUT",
         headers: getAuthHeaders(),
-        body: JSON.stringify({ isArchived: u.active }),
+        body: JSON.stringify({ isArchived: willDeactivate }), // true = deactivate, false = activate
       });
-      if (!res.ok) throw new Error("Failed to archive user");
+      if (!res.ok) throw new Error("Failed to update user status");
 
       setUsers((prev) =>
-        prev.map((x) => (x.id === id ? { ...x, active: !x.active } : x))
+        prev.map((x) => (x.id === u.id ? { ...x, active: !x.active } : x))
       );
-      toast.success(u.active ? "Archived" : "Unarchived");
+      toast.success(
+        willDeactivate
+          ? `${u.name} has been deactivated and logged out.`
+          : `${u.name} has been activated.`
+      );
+      setDeactivateFor(null);
     } catch (err) {
-      toast.error(err.message || "Failed to archive user");
+      toast.error(err.message || "Failed to update user status");
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -362,15 +370,34 @@ export default function UsersPage() {
                           >
                             <Key className="w-4 h-4" />
                           </Button>
-                          <Button 
-                            size="icon" 
-                            variant="ghost" 
-                            title="Archive" 
-                            onClick={() => archive(u.id)}
-                            className={`hover:bg-[#6F4E37]/10 text-[#6F4E37]/60 hover:text-[#6F4E37] h-8 w-8 rounded-lg cursor-pointer ${!u.active ? 'bg-[#6F4E37]/10 text-[#6F4E37]' : ''}`}
-                          >
-                            <Archive className="w-4 h-4" />
-                          </Button>
+
+                          {/* Activate / Deactivate Toggle Button */}
+                          {u.active ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              title="Deactivate user"
+                              onClick={() => setDeactivateFor(u)}
+                              disabled={actionLoadingId === u.id}
+                              className="h-8 px-2.5 rounded-lg text-xs font-bold cursor-pointer bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:text-red-700 transition"
+                            >
+                              <ShieldOff className="w-3.5 h-3.5 mr-1" />
+                              Deactivate
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              title="Activate user"
+                              onClick={() => toggleActive(u)}
+                              disabled={actionLoadingId === u.id}
+                              className="h-8 px-2.5 rounded-lg text-xs font-bold cursor-pointer bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 hover:text-emerald-700 transition"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5 mr-1" />
+                              Activate
+                            </Button>
+                          )}
+
                           <Button 
                             size="icon" 
                             variant="ghost" 
@@ -633,6 +660,53 @@ export default function UsersPage() {
               className="bg-red-500 hover:bg-red-600 text-white flex-1 font-bold cursor-pointer rounded-xl"
             >
               Confirm Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Deactivate Confirmation Dialog ──────────────────────────────── */}
+      <Dialog open={!!deactivateFor} onOpenChange={(v) => !v && setDeactivateFor(null)}>
+        <DialogContent className="bg-white border border-[#6F4E37]/30 text-[#2B2118] max-w-sm rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-amber-600 font-extrabold text-lg flex items-center gap-2">
+              <ShieldOff className="w-5 h-5" /> Deactivate User?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 space-y-3">
+            <p className="text-sm text-[#2B2118]/80">
+              Are you sure you want to deactivate{" "}
+              <strong className="text-[#6F4E37]">{deactivateFor?.name}</strong>?
+            </p>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1">
+              <p className="text-xs font-bold text-amber-700">⚡ Immediate Effects:</p>
+              <ul className="text-xs text-amber-700/80 space-y-0.5 list-disc list-inside">
+                <li>They will be <strong>instantly logged out</strong> of all active sessions.</li>
+                <li>They cannot log in until re-activated.</li>
+                <li>All their past orders and data are preserved.</li>
+              </ul>
+            </div>
+            <p className="text-xs text-[#6F4E37]/60">You can re-activate this user at any time.</p>
+          </div>
+          <DialogFooter className="flex gap-2 pt-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeactivateFor(null)}
+              className="border-[#6F4E37]/20 text-[#6F4E37]/60 hover:bg-[#FAF3E0] flex-1 cursor-pointer rounded-xl"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => toggleActive(deactivateFor)}
+              disabled={actionLoadingId === deactivateFor?.id}
+              className="bg-amber-500 hover:bg-amber-600 text-white flex-1 font-bold cursor-pointer rounded-xl"
+            >
+              {actionLoadingId === deactivateFor?.id ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-1" />
+              ) : (
+                <ShieldOff className="w-4 h-4 mr-1" />
+              )}
+              Yes, Deactivate
             </Button>
           </DialogFooter>
         </DialogContent>

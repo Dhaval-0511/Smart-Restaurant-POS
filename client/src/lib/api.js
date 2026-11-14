@@ -26,6 +26,7 @@ async function request(method, path, body) {
   if (!res.ok) {
     if (res.status === 401) {
       clearToken();
+      try { localStorage.removeItem('cafe-session-id'); } catch (e) {}
       const isAuthRoute = path.startsWith('/auth/login') ||
                           path.startsWith('/auth/register') ||
                           path.startsWith('/auth/forgot-password') ||
@@ -34,7 +35,15 @@ async function request(method, path, body) {
       if (!isAuthRoute && typeof window !== "undefined") {
         const publicPaths = ["/", "/register", "/forgot-password", "/reset-password"];
         if (!publicPaths.includes(window.location.pathname)) {
-          window.location.href = "/";
+          // Show a contextual message for session displacement vs regular expiry
+          const isDisplaced = json.message?.includes('SESSION_DISPLACED');
+          if (isDisplaced) {
+            // Let the socket handler show the toast + redirect (already handled)
+            // If socket didn't fire (e.g. offline), still redirect
+            setTimeout(() => { window.location.href = "/login"; }, 300);
+          } else {
+            window.location.href = "/";
+          }
         }
       }
     }

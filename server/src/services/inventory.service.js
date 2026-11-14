@@ -166,8 +166,18 @@ export const setProductRecipe = async (productId, items) => {
 };
 
 // ── Auto-Deduction on Order Payment ──────────────────────────────────────────
+// Idempotent: checks StockLedger to prevent double-deduction for the same order.
 
 export const deductStockForOrder = async (orderId, recordedById) => {
+  // ── Idempotency check: skip if this order was already deducted ────────────
+  const alreadyDeducted = await prisma.stockLedger.findFirst({
+    where: { referenceId: orderId, movementType: 'SALE_DEDUCTION' },
+  });
+  if (alreadyDeducted) {
+    console.log(`[Inventory] Order ${orderId} already deducted — skipping.`);
+    return;
+  }
+
   // Get all order items with their quantities
   const orderItems = await prisma.orderItem.findMany({
     where: { orderId },
@@ -212,7 +222,16 @@ export const deductStockForOrder = async (orderId, recordedById) => {
         }),
       ]);
 
-      // ── Broadcast low-stock alert if ingredient is at/below minimum ──────
+      // ── Broadcast real-time stock update to all connected clients ─────────
+      emitEvent('inventory:updated', {
+        ingredientId: ri.ingredientId,
+        name: currentIngredient.name,
+        currentStock: newStock,
+        minimumStock: Number(currentIngredient.minimumStock ?? 0),
+        unit: currentIngredient.unitOfMeasure,
+      });
+
+      // ── Broadcast low-stock alert if ingredient is at/below minimum ───────
       const minStock = Number(currentIngredient.minimumStock ?? 0);
       if (newStock <= minStock) {
         emitEvent('inventory:low-stock', {

@@ -13,9 +13,26 @@ export default function SignInPage() {
 
   const login = useStore((s) => s.login);
   const openSession = useStore((s) => s.openSession);
+  const authToken = useStore((s) => s.authToken);
+  const currentUserId = useStore((s) => s.currentUserId);
+  const users = useStore((s) => s.users);
   const navigate = useNavigate();
 
   useEffect(() => { document.title = "Sign In | Cafe POS"; }, []);
+
+  // ── If already logged in (e.g. another tab logged in and BroadcastChannel
+  //    triggered a reload, or user manually visits /login while still active)
+  //    redirect them to the appropriate dashboard immediately.
+  useEffect(() => {
+    if (!authToken || !currentUserId) return;
+    const user = users.find((u) => u.id === currentUserId);
+    const role = user?.role;
+    if (!role) return;
+    if (role === "KITCHEN_STAFF") navigate("/kds", { replace: true });
+    else if (role === "INVENTORY_MANAGER") navigate("/admin/products", { replace: true });
+    else if (["SUPER_ADMIN", "BRANCH_MANAGER", "ADMIN"].includes(role)) navigate("/admin/reports", { replace: true });
+    else navigate("/pos", { replace: true });
+  }, [authToken, currentUserId, users, navigate]);
 
   const handleSubmit = async (ev) => {
     ev.preventDefault();

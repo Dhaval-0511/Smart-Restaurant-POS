@@ -1,8 +1,10 @@
 import {
   registerUser, loginUser, getUserById, getAllUsers, updateUser, deleteUser,
   forgotPassword, resetPassword, getPendingUsers, approveUser, rejectUser,
+  verifyPassword,
 } from '../services/auth.service.js';
 import { successResponse, errorResponse, paginatedResponse } from '../utils/response.util.js';
+import prisma from '../config/database.js';
 
 export const register = async (req, res) => {
   try {
@@ -95,7 +97,21 @@ export const getAllEmployees = async (req, res) => {
 
 export const updateProfile = async (req, res) => {
   try {
-    const user = await updateUser(req.userId, req.body);
+    const { currentPassword, password, ...rest } = req.body;
+    // If changing password, verify currentPassword first
+    if (password) {
+      if (!currentPassword) {
+        return errorResponse(res, 'Current password is required to set a new password', 400);
+      }
+      // Fetch hashed password directly (getUserById excludes it)
+      const existing = await prisma.user.findUnique({ where: { id: req.userId }, select: { password: true } });
+      if (!existing) return errorResponse(res, 'User not found', 404);
+      const valid = await verifyPassword(currentPassword, existing.password);
+      if (!valid) {
+        return errorResponse(res, 'Current password is incorrect', 401);
+      }
+    }
+    const user = await updateUser(req.userId, { ...rest, ...(password ? { password } : {}) });
     return successResponse(res, user, 'User updated successfully');
   } catch (error) {
     return errorResponse(res, error.message, 400, error);
