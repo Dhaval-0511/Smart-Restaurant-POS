@@ -29,6 +29,9 @@ import {
   Search,
   Coffee,
   LayoutGrid,
+  Warehouse,
+  UserCircle,
+  Settings,
 } from "lucide-react";
 
 import { CustomerCaptureModal } from "./CustomerCaptureModal";
@@ -184,19 +187,25 @@ export function PosHeader() {
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
-            className="w-56 bg-white border border-[#6F4E37]/30 text-[#6F4E37] shadow-xl rounded-md p-1.5"
+            className="w-64 bg-white border border-[#6F4E37]/30 text-[#6F4E37] shadow-xl rounded-md p-1.5"
           >
             {isAdmin && (
               <>
                 {[
                   { to: "/admin/products", label: "Products", icon: Package },
                   { to: "/admin/categories", label: "Category", icon: Tags },
+                  { to: "/admin/inventory", label: "Inventory", icon: Warehouse },
                   { to: "/admin/payment-methods", label: "Payment Method", icon: CreditCard },
                   { to: "/admin/coupons", label: "Coupon & Promotion", icon: Ticket },
-                  { to: "/admin/booking", label: "Booking", icon: BookOpen },
+                  { to: "/admin/booking", label: "Table and floor management", icon: BookOpen },
                   { to: "/admin/users", label: "User / Employee", icon: UserCog },
                   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
-                ].map(({ to, label, icon: Icon }) => (
+                ].filter((it) => {
+                  if (user?.role === "INVENTORY_MANAGER") {
+                    return ["/admin/products", "/admin/categories", "/admin/inventory"].includes(it.to);
+                  }
+                  return true;
+                }).map(({ to, label, icon: Icon }) => (
                   <DropdownMenuItem
                     key={to}
                     onClick={() => navigate(to)}
@@ -213,6 +222,19 @@ export function PosHeader() {
               className="hover:bg-[#FAF3E0] hover:text-[#6F4E37] rounded-md cursor-pointer px-3.5 py-2.5 text-[13px] font-semibold transition"
             >
               <Monitor className="w-4 h-4 mr-3 text-[#6F4E37]/70" /> KDS
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="bg-[#6F4E37]/20 my-1" />
+            <DropdownMenuItem
+              onClick={() => navigate("/pos/profile")}
+              className="hover:bg-[#FAF3E0] hover:text-[#6F4E37] rounded-md cursor-pointer px-3.5 py-2.5 text-[13px] font-semibold transition"
+            >
+              <UserCircle className="w-4 h-4 mr-3 text-[#6F4E37]/70" /> My Profile
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => navigate("/pos/settings")}
+              className="hover:bg-[#FAF3E0] hover:text-[#6F4E37] rounded-md cursor-pointer px-3.5 py-2.5 text-[13px] font-semibold transition"
+            >
+              <Settings className="w-4 h-4 mr-3 text-[#6F4E37]/70" /> Settings
             </DropdownMenuItem>
             <DropdownMenuSeparator className="bg-[#6F4E37]/20 my-1" />
             <DropdownMenuItem

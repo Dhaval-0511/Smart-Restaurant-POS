@@ -1,8 +1,10 @@
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 
-export const generateToken = (userId, role, expiresIn) => {
-  return jwt.sign({ userId, role }, env.JWT_SECRET, {
+export const generateToken = (userId, role, expiresIn, sessionId = null) => {
+  const payload = { userId, role };
+  if (sessionId) payload.sessionId = sessionId;
+  return jwt.sign(payload, env.JWT_SECRET, {
     expiresIn: expiresIn || env.JWT_EXPIRE,
   });
 };

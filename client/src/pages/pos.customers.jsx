@@ -10,7 +10,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Plus, Search, Pencil, Trash2, Loader2 } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
@@ -31,7 +31,28 @@ function normaliseCustomer(c) {
     name: c.name,
     email: c.email ?? "",
     phone: c.phone ?? "",
+    createdAt: c.createdAt ?? null,
   };
+}
+
+function getCustomerDateBounds(filter) {
+  const now = new Date();
+  if (filter === "today") {
+    const start = new Date(now); start.setHours(0, 0, 0, 0);
+    const end   = new Date(now); end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+  if (filter === "week") {
+    const start = new Date(now); start.setDate(now.getDate() - now.getDay()); start.setHours(0, 0, 0, 0);
+    const end   = new Date(now); end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+  if (filter === "month") {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end   = new Date(now); end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+  return null;
 }
 
 export default function CustomersPage() {
@@ -39,17 +60,17 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
 
   const [q, setQ] = useState("");
+  const [dateFilter, setDateFilter] = useState("all"); // all | today | week | month
+  const [sortBy, setSortBy] = useState("newest");       // newest | oldest | name_asc | name_desc
   const [editing, setEditing] = useState(null);
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
 
-  useEffect(() => {
-    fetchCustomers();
-  }, []);
+  useEffect(() => { fetchCustomers(); }, []);
 
-  // Reset to page 1 on search change
-  useEffect(() => { setPage(1); }, [q]);
+  // Reset to page 1 on any filter/sort/search change
+  useEffect(() => { setPage(1); }, [q, dateFilter, sortBy]);
 
   const fetchCustomers = async () => {
     try {
@@ -65,18 +86,33 @@ export default function CustomersPage() {
     }
   };
 
-  const filtered = customers.filter(
-    (c) =>
-      !q ||
-      c.name.toLowerCase().includes(q.toLowerCase()) ||
-      (c.email && c.email.toLowerCase().includes(q.toLowerCase())) ||
-      (c.phone && c.phone.includes(q))
-  );
+  const filtered = customers.filter((c) => {
+    if (q && !c.name.toLowerCase().includes(q.toLowerCase()) &&
+        !(c.email && c.email.toLowerCase().includes(q.toLowerCase())) &&
+        !(c.phone && c.phone.includes(q))) return false;
+    const bounds = getCustomerDateBounds(dateFilter);
+    if (bounds && c.createdAt) {
+      const d = new Date(c.createdAt);
+      if (d < bounds.start || d > bounds.end) return false;
+    }
+    return true;
+  });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paginated  = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const startRow   = filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const endRow     = Math.min(page * PAGE_SIZE, filtered.length);
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === "name_asc")  return a.name.localeCompare(b.name);
+    if (sortBy === "name_desc") return b.name.localeCompare(a.name);
+    if (sortBy === "oldest")    return new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0);
+    // newest (default)
+    return new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0);
+  });
+
+  const hasActiveFilters = dateFilter !== "all" || sortBy !== "newest" || q !== "";
+  const resetFilters = () => { setDateFilter("all"); setSortBy("newest"); setQ(""); };
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const paginated  = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const startRow   = sorted.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const endRow     = Math.min(page * PAGE_SIZE, sorted.length);
 
   const startNew = () => {
     setEditing({ name: "", email: "", phone: "" });
@@ -138,7 +174,9 @@ export default function CustomersPage() {
           <div>
             <h1 className="text-2xl font-extrabold text-[#6F4E37] tracking-tight">Customers</h1>
             <p className="text-xs text-[#6F4E37]/60 mt-0.5 font-medium">
-              {filtered.length} of {customers.length} customers{q ? " matching search" : ""}
+              {sorted.length} of {customers.length} customers
+              {dateFilter !== "all" ? ` · ${dateFilter === "today" ? "Today" : dateFilter === "week" ? "This Week" : "This Month"}` : ""}
+              {q ? ` matching "${q}"` : ""}
             </p>
           </div>
           <Button onClick={startNew} className="bg-[#6F4E37] hover:bg-[#6F4E37]/90 text-white font-bold px-4 py-2 rounded-xl transition border border-[#6F4E37]/20 cursor-pointer">
@@ -154,6 +192,51 @@ export default function CustomersPage() {
             onChange={(e) => setQ(e.target.value)}
             className="pl-9 bg-[#FAF3E0] text-[#2B2118] border-[#6F4E37]/30 focus:border-[#6F4E37] focus:bg-white rounded-xl"
           />
+        </div>
+
+        {/* Filter & Sort Bar */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Date Pills */}
+          {[
+            { label: "All Time", value: "all" },
+            { label: "Today",    value: "today" },
+            { label: "This Week", value: "week" },
+            { label: "This Month", value: "month" },
+          ].map(({ label, value }) => (
+            <button
+              key={value}
+              onClick={() => setDateFilter(value)}
+              className={`px-3 py-1 text-xs font-bold rounded-full border transition cursor-pointer ${
+                dateFilter === value
+                  ? "bg-[#6F4E37] text-white border-[#6F4E37]"
+                  : "bg-white text-[#6F4E37] border-[#6F4E37]/30 hover:bg-[#FAF3E0]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+
+          {/* Sort Select */}
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="ml-auto text-xs font-semibold text-[#6F4E37] border border-[#6F4E37]/30 bg-white rounded-xl px-3 py-1.5 focus:outline-none focus:border-[#6F4E37] cursor-pointer"
+          >
+            <option value="newest">Newest Added</option>
+            <option value="oldest">Oldest First</option>
+            <option value="name_asc">Name A → Z</option>
+            <option value="name_desc">Name Z → A</option>
+          </select>
+
+          {/* Reset */}
+          {hasActiveFilters && (
+            <button
+              onClick={resetFilters}
+              className="flex items-center gap-1 text-xs font-bold text-red-500 hover:text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded-xl px-3 py-1.5 transition cursor-pointer"
+            >
+              <X className="w-3 h-3" /> Reset
+            </button>
+          )}
         </div>
       </div>
 
@@ -196,9 +279,9 @@ export default function CustomersPage() {
                     </div>
                   </div>
                 ))}
-                {!paginated.length && (
+                  {!paginated.length && (
                   <div className="p-10 text-center text-zinc-500 font-semibold">
-                    {q ? "No customers match your search." : "No customers yet."}
+                    {hasActiveFilters ? "No customers match your filters." : "No customers yet."}
                   </div>
                 )}
               </div>
@@ -206,10 +289,10 @@ export default function CustomersPage() {
               {/* ── Pagination bar — always pinned to bottom of card ── */}
               <div className="shrink-0 flex items-center justify-between px-4 py-3 border-t border-[#6F4E37]/15 bg-[#FAF3E0]/40">
                 <span className="text-xs font-semibold text-[#6F4E37]/70">
-                  {filtered.length === 0
+                  {sorted.length === 0
                     ? "No records"
                     : <>Showing <span className="font-extrabold text-[#6F4E37]">{startRow}–{endRow}</span> of{" "}
-                       <span className="font-extrabold text-[#6F4E37]">{filtered.length}</span> customers</>
+                       <span className="font-extrabold text-[#6F4E37]">{sorted.length}</span> customers</>
                   }
                 </span>
                 <div className="flex items-center gap-1.5">

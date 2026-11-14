@@ -3,8 +3,18 @@ import { hashPassword, comparePassword } from '../utils/password.util.js';
 import { generateToken } from '../utils/jwt.util.js';
 import { sendPasswordResetEmail } from './mail.service.js';
 import { logAuditAction } from './audit.service.js';
+import { emitEvent } from '../config/socket.js';
 import { env } from '../config/env.js';
 import crypto from 'crypto';
+
+// Convenience export so controller can verify currentPassword
+export const verifyPassword = comparePassword;
+
+// ── Single Active Session Registry (in-memory) ───────────────────────────────
+// Maps userId → { sessionId, loggedInAt }
+// When a user logs in from a new browser/device, their old sessionId is replaced
+// and the previous session is force-logged out via Socket.IO.
+export const userActiveSessions = new Map();
 
 export const registerUser = async (data) => {
   const { name, email, password } = data;
@@ -36,8 +46,23 @@ export const loginUser = async (email, password, rememberMe = false, req = null)
   const isPasswordValid = await comparePassword(password, user.password);
   if (!isPasswordValid) throw new Error('Invalid email or password.');
 
+  // Generate a unique session ID for this login — used to enforce single active session
+  const sessionId = crypto.randomUUID();
   const expiresIn = rememberMe ? env.JWT_REMEMBER_EXPIRE : env.JWT_EXPIRE;
-  const token = generateToken(user.id, user.role, expiresIn);
+  const token = generateToken(user.id, user.role, expiresIn, sessionId);
+
+  // ── Single Active Session: displace any previously active session ──────────
+  const prevSession = userActiveSessions.get(user.id);
+  userActiveSessions.set(user.id, { sessionId, loggedInAt: Date.now() });
+
+  if (prevSession && prevSession.sessionId !== sessionId) {
+    // Emit to ALL connected sockets — the old browser will catch this and self-logout
+    emitEvent('user:session-displaced', {
+      userId: user.id,
+      activeSessionId: sessionId,
+      message: 'Your session was ended because this account logged in from another browser or device.',
+    });
+  }
 
   // Log login audit event (non-blocking)
   logAuditAction(user.id, 'USER_LOGIN', { email: user.email, role: user.role }, req);
@@ -45,6 +70,7 @@ export const loginUser = async (email, password, rememberMe = false, req = null)
   return {
     user: { id: user.id, name: user.name, email: user.email, role: user.role },
     token,
+    sessionId,
     rememberMe,
   };
 };
@@ -171,11 +197,25 @@ export const updateUser = async (userId, data) => {
   if (role !== undefined) updateData.role = role;
   if (isArchived !== undefined) updateData.isArchived = isArchived;
 
-  return await prisma.user.update({
+  const updated = await prisma.user.update({
     where: { id: userId },
     data: updateData,
     select: { id: true, name: true, email: true, role: true, isArchived: true, createdAt: true },
   });
+
+  // ── If deactivated: close open sessions & force real-time logout ──────────
+  if (isArchived === true) {
+    // Close all open POS sessions for this user (non-blocking)
+    prisma.session.updateMany({
+      where: { userId, status: 'OPEN' },
+      data: { status: 'CLOSED', closedAt: new Date() },
+    }).catch((err) => console.error('[auth] session close on deactivate failed:', err));
+
+    // Broadcast forced logout to any connected client with this userId
+    emitEvent('user:deactivated', { userId });
+  }
+
+  return updated;
 };
 
 export const deleteUser = async (userId) => {

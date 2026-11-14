@@ -121,6 +121,8 @@ const STAGE_HEADER_BG = {
 };
 
 // ── Main KDS Page ─────────────────────────────────────────────────────────────
+const POS_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'CASHIER', 'ADMIN', 'EMPLOYEE'];
+
 export default function KDSPage() {
   const navigate   = useNavigate();
   const userId     = useStore((s) => s.currentUserId);
@@ -132,6 +134,10 @@ export default function KDSPage() {
   const setStage   = useStore((s) => s.setKdsStage);
   const toggleItem = useStore((s) => s.toggleKdsItem);
   const fetchKds   = useStore((s) => s.fetchKds);
+
+  // Bulletproof POS access check: use both flag AND direct role check
+  // so it works even when user object hasn't fully hydrated (e.g. new tab)
+  const canGoToPos = user?.canAccessPos || POS_ROLES.includes(user?.role);
 
   const today = new Date().toISOString().split("T")[0];
 
@@ -211,13 +217,15 @@ export default function KDSPage() {
       <header className="border-b border-[#6F4E37]/30 px-5 py-3.5 flex items-center justify-between gap-4 bg-white shadow-sm flex-wrap">
         {/* Left: nav + title */}
         <div className="flex items-center gap-3">
-          {user?.canAccessPos && (
+          {/* Always show "Back to POS" for anyone who can access POS (Cashier, Admin, etc.) */}
+          {(canGoToPos) && (
             <Link to="/pos"
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition cursor-pointer bg-[#6F4E37] text-white hover:bg-[#6F4E37]/90 shadow-md shrink-0">
-              <ArrowLeft className="w-4 h-4" /><span>POS</span>
+              <ArrowLeft className="w-4 h-4" /><span>Back to POS</span>
             </Link>
           )}
-          {user?.canAccessAdmin && !user?.canAccessPos && (
+          {/* Admin/Manager only — show Admin Dashboard button when they can't access POS */}
+          {user?.canAccessAdmin && !canGoToPos && (
             <Link to="/admin/reports"
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition cursor-pointer bg-[#6F4E37] text-white hover:bg-[#6F4E37]/90 shadow-md shrink-0">
               <LayoutDashboard className="w-4 h-4" /><span>Admin</span>

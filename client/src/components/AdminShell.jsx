@@ -1,6 +1,6 @@
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useStore } from "@/lib/store";
-import { Coffee, Package, Tags, CreditCard, Ticket, BookOpen, UserCog, Monitor, BarChart3, LogOut, ArrowLeft, Warehouse } from "lucide-react";
+import { Coffee, Package, Tags, CreditCard, Ticket, BookOpen, UserCog, Monitor, BarChart3, LogOut, ArrowLeft, Warehouse, UserCircle, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const items = [
@@ -9,7 +9,7 @@ const items = [
   { to: "/admin/inventory", label: "Inventory", icon: Warehouse },
   { to: "/admin/payment-methods", label: "Payment Method", icon: CreditCard },
   { to: "/admin/coupons", label: "Coupon & Promotion", icon: Ticket },
-  { to: "/admin/booking", label: "Booking", icon: BookOpen },
+  { to: "/admin/booking", label: "Table and floor management", icon: BookOpen },
   { to: "/admin/users", label: "User / Employee", icon: UserCog },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
 ];
@@ -34,7 +34,7 @@ export function AdminShell({ children, title }) {
   return (
     <div className="min-h-screen flex bg-[#FAF3E0] text-[#2B2118] select-none">
       {/* Sidebar */}
-      <aside className="w-60 bg-white border-r border-[#6F4E37]/15 flex flex-col shadow-sm">
+      <aside className="w-64 bg-white border-r border-[#6F4E37]/15 flex flex-col shadow-sm">
         {/* Logo */}
         <div className="p-4 flex items-center justify-between border-b border-[#6F4E37]/15">
           <div className="flex items-center gap-2.5">
@@ -86,6 +86,28 @@ export function AdminShell({ children, title }) {
 
         {/* Footer actions */}
         <div className="p-2.5 border-t border-[#6F4E37]/15 space-y-0.5">
+          <Link
+            to="/admin/profile"
+            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              pathname === "/admin/profile"
+                ? "bg-[#6F4E37] text-white shadow-md shadow-[#6F4E37]/20"
+                : "text-[#2B2118]/70 hover:bg-[#FAF3E0] hover:text-[#6F4E37]"
+            }`}
+          >
+            <UserCircle className={`w-4 h-4 ${pathname === "/admin/profile" ? "text-white" : "text-[#6F4E37]/70"}`} />
+            My Profile
+          </Link>
+          <Link
+            to="/admin/settings"
+            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              pathname === "/admin/settings"
+                ? "bg-[#6F4E37] text-white shadow-md shadow-[#6F4E37]/20"
+                : "text-[#2B2118]/70 hover:bg-[#FAF3E0] hover:text-[#6F4E37]"
+            }`}
+          >
+            <Settings className={`w-4 h-4 ${pathname === "/admin/settings" ? "text-white" : "text-[#6F4E37]/70"}`} />
+            Settings
+          </Link>
           {user?.canAccessPos && (
             <Button
               variant="ghost"

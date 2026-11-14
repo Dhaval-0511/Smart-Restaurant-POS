@@ -1,6 +1,7 @@
 import { verifyToken } from '../utils/jwt.util.js';
 import { errorResponse } from '../utils/response.util.js';
 import prisma from '../config/database.js';
+import { userActiveSessions } from '../services/auth.service.js';
 
 // Roles that have admin-level system access
 export const ADMIN_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ADMIN'];
@@ -28,20 +29,36 @@ export const authMiddleware = async (req, res, next) => {
       return errorResponse(res, 'Invalid or expired token', 401);
     }
 
-    // Attach userId and role from token (no extra DB query needed)
-    req.userId = decoded.userId;
-    req.userRole = decoded.role;
+    // ── Check if user is deactivated (real-time block) ─────────────────────
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { id: true, name: true, email: true, role: true, isArchived: true, status: true },
+    });
 
-    // Lazy-load full user object only when needed
-    req.getUser = async () => {
-      if (!req._user) {
-        req._user = await prisma.user.findUnique({
-          where: { id: decoded.userId },
-          select: { id: true, name: true, email: true, role: true, isArchived: true, status: true },
-        });
+    if (!user) {
+      return errorResponse(res, 'Account not found', 401);
+    }
+    if (user.isArchived) {
+      return errorResponse(res, 'Your account has been deactivated. Please contact an administrator.', 401);
+    }
+
+    // ── Single Active Session: reject tokens from displaced sessions ──────────
+    // Only enforced when a sessionId is embedded in the token (new logins).
+    // Old tokens without sessionId (e.g., tokens issued before this feature) remain valid.
+    if (decoded.sessionId) {
+      const activeSession = userActiveSessions.get(decoded.userId);
+      if (activeSession && activeSession.sessionId !== decoded.sessionId) {
+        return errorResponse(res, 'SESSION_DISPLACED: Your session has ended because this account was logged in from another browser or device. Please log in again.', 401);
       }
-      return req._user;
-    };
+    }
+
+    // Attach userId and role from DB (fresh, not stale token data)
+    req.userId = user.id;
+    req.userRole = user.role;
+    req._user = user;
+
+    // Lazy-load helper (for backward compat — already populated above)
+    req.getUser = async () => req._user;
 
     next();
   } catch (error) {

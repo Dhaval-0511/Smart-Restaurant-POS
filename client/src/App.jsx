@@ -1,8 +1,9 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useEffect, lazy, Suspense } from 'react';
 import { Toaster } from 'sonner';
 import { useStore } from './lib/store';
 import { LowStockBanner } from './components/LowStockBanner';
+import { setupCrossTabSync } from './lib/crossTabAuth';
 
 // Lazy-loaded Pages (code-split to minimize startup memory overhead)
 const HomePage = lazy(() => import('./pages/home.jsx'));
@@ -25,6 +26,8 @@ const AdminBookingPage = lazy(() => import('./pages/admin.booking.jsx'));
 const AdminUsersPage = lazy(() => import('./pages/admin.users.jsx'));
 const AdminReportsPage = lazy(() => import('./pages/admin.reports.jsx'));
 const AdminInventoryPage = lazy(() => import('./pages/admin.inventory.jsx'));
+const ProfilePage = lazy(() => import('./pages/profile.jsx'));
+const SettingsPage = lazy(() => import('./pages/settings.jsx'));
 
 function PageLoader() {
   return (
@@ -45,9 +48,11 @@ function AdminIndexRedirect() {
   return <Navigate to="/admin/reports" replace />;
 }
 
-function App() {
+// ── AppInner lives inside <BrowserRouter> so useNavigate works ───────────────
+function AppInner() {
   const bootstrap = useStore((s) => s.bootstrap);
   const authToken = useStore((s) => s.authToken);
+  const navigate  = useNavigate();
 
   useEffect(() => {
     if (authToken) {
@@ -55,8 +60,14 @@ function App() {
     }
   }, [authToken, bootstrap]);
 
+  // Cross-tab session synchronization (login/logout broadcast across tabs)
+  useEffect(() => {
+    const cleanup = setupCrossTabSync(() => useStore.getState(), navigate);
+    return cleanup;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <BrowserRouter>
+    <>
       <Suspense fallback={<PageLoader />}>
         <Routes>
           {/* Public Routes */}
@@ -73,6 +84,8 @@ function App() {
             <Route path="orders" element={<PosOrdersPage />} />
             <Route path="customers" element={<PosCustomersPage />} />
             <Route path="tables" element={<PosTablesPage />} />
+            <Route path="profile" element={<ProfilePage />} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
 
           {/* Admin Nested Routes */}
@@ -86,6 +99,8 @@ function App() {
             <Route path="users" element={<AdminUsersPage />} />
             <Route path="reports" element={<AdminReportsPage />} />
             <Route path="inventory" element={<AdminInventoryPage />} />
+            <Route path="profile" element={<ProfilePage />} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
 
           {/* Fallback */}
@@ -94,6 +109,14 @@ function App() {
       </Suspense>
       <Toaster richColors position="top-right" />
       <LowStockBanner />
+    </>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AppInner />
     </BrowserRouter>
   );
 }

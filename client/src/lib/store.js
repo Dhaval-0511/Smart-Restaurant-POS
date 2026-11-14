@@ -6,6 +6,7 @@ import {
   saveToken, clearToken,
 } from "./api.js";
 import socket from "./socket.js";
+import { toast } from "sonner";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const pad = (n) => String(n).padStart(5, "0");
@@ -261,6 +262,56 @@ export const useStore = create(
               ].slice(0, 20), // keep max 20 alerts
             }));
           });
+
+          // ── Real-time ingredient stock updates ───────────────
+          socket.off("inventory:updated");
+          socket.on("inventory:updated", (data) => {
+            // Update currentStock of the matching ingredient in state
+            set((s) => ({
+              ingredients: s.ingredients.map((ing) =>
+                ing.id === data.ingredientId
+                  ? { ...ing, currentStock: data.currentStock }
+                  : ing
+              ),
+            }));
+          });
+
+          // ── Forced logout when admin deactivates this user ───
+          socket.off("user:deactivated");
+          socket.on("user:deactivated", ({ userId }) => {
+            if (get().currentUserId === userId) {
+              clearToken();
+              set({
+                currentUserId: null,
+                currentTableId: null,
+                currentSessionId: null,
+                authToken: null,
+                bootstrapped: false,
+              });
+              toast.error("Your account has been deactivated by an administrator. You have been logged out.", { duration: 6000 });
+              setTimeout(() => { window.location.href = "/auth"; }, 1500);
+            }
+          });
+
+          // ── Single Active Session: forced logout when user logs in elsewhere ──
+          socket.off("user:session-displaced");
+          socket.on("user:session-displaced", ({ userId, activeSessionId, message }) => {
+            const myId = get().currentUserId;
+            if (myId !== userId) return; // Not for this user
+            // Check if this tab's session is the new one (the tab that just logged in)
+            let mySessionId = null;
+            try { mySessionId = localStorage.getItem('cafe-session-id'); } catch (e) {}
+            if (mySessionId === activeSessionId) return; // This IS the new login — stay logged in
+            // This tab holds the old session — force logout
+            clearToken();
+            try { localStorage.removeItem('cafe-session-id'); } catch (e) {}
+            set({
+              currentUserId: null, currentTableId: null,
+              currentSessionId: null, authToken: null, bootstrapped: false,
+            });
+            toast.error(message || "You were logged out because this account logged in from another browser or device.", { duration: 7000 });
+            setTimeout(() => { window.location.href = "/login"; }, 1800);
+          });
         } catch (e) {
           console.error("Bootstrap error:", e);
           set({ loading: false });
@@ -272,17 +323,35 @@ export const useStore = create(
         const result = await authApi.login(email, password, rememberMe);
         const user = normaliseUser(result.user ?? result);
         const token = result.token ?? result.accessToken ?? null;
+        const sessionId = result.sessionId ?? null;
         if (token) {
           saveToken(token);
           set({ authToken: token });
         }
+        // Store sessionId so we can detect displacement events
+        if (sessionId) {
+          try { localStorage.setItem('cafe-session-id', sessionId); } catch (e) {}
+        }
         set({ currentUserId: user.id, users: [user] });
         set({ bootstrapped: false });
+        // Broadcast login to other tabs in the same browser
+        try {
+          const ch = new BroadcastChannel('cafe_auth_channel');
+          ch.postMessage({ type: 'AUTH_LOGIN', userId: user.id, role: user.role, token, sessionId });
+          ch.close();
+        } catch (e) {}
         await get().bootstrap();
         return user;
       },
       logout: () => {
         clearToken();
+        try { localStorage.removeItem('cafe-session-id'); } catch (e) {}
+        // Broadcast logout to all other open tabs in the same browser
+        try {
+          const ch = new BroadcastChannel('cafe_auth_channel');
+          ch.postMessage({ type: 'AUTH_LOGOUT' });
+          ch.close();
+        } catch (e) {}
         set({
           currentUserId: null,
           currentTableId: null,

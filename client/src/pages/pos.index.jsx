@@ -836,25 +836,50 @@ export default function OrderView() {
                 </div>
 
                 {/* PROCEED TO PAYMENT — primary CTA */}
-                <button
-                  onClick={() => {
-                    if (!order || order.lines.length === 0) {
-                      toast.error("Cart is empty — add items first");
-                      return;
-                    }
-                    setPayModalOpen(true);
-                  }}
-                  disabled={!order || displayOrder.total === 0}
-                  className="w-full bg-[#6F4E37] hover:bg-[#5A3A1A] disabled:bg-[#6F4E37]/30 disabled:cursor-not-allowed text-white font-extrabold py-3.5 rounded-2xl text-sm transition-all shadow-md shadow-[#6F4E37]/20 cursor-pointer flex items-center justify-center gap-2"
-                >
-                  <CreditCard className="w-4 h-4" />
-                  Proceed to Payment
-                  {displayOrder.total > 0 && (
-                    <span className="ml-1 bg-white/20 px-2 py-0.5 rounded-lg text-xs font-black">
-                      ₹{Math.round(displayOrder.total)}
-                    </span>
-                  )}
-                </button>
+                {/* Kitchen-first guard: cashier must send to kitchen before payment */}
+                {order && order.lines.length > 0 && !order.sentToKitchen ? (
+                  <div className="space-y-2">
+                    <div className="w-full bg-amber-50 border border-amber-300 rounded-2xl px-4 py-2.5 flex items-center gap-2">
+                      <span className="text-amber-600 text-lg">⚠️</span>
+                      <div>
+                        <p className="text-xs font-extrabold text-amber-700">Send to Kitchen First</p>
+                        <p className="text-[11px] text-amber-600/80">Click &ldquo;Send to Kitchen&rdquo; before taking payment.</p>
+                      </div>
+                    </div>
+                    <button
+                      disabled
+                      className="w-full bg-[#6F4E37]/30 cursor-not-allowed text-white/60 font-extrabold py-3.5 rounded-2xl text-sm flex items-center justify-center gap-2"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      Proceed to Payment
+                      {displayOrder.total > 0 && (
+                        <span className="ml-1 bg-white/10 px-2 py-0.5 rounded-lg text-xs font-black">
+                          ₹{Math.round(displayOrder.total)}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      if (!order || order.lines.length === 0) {
+                        toast.error("Cart is empty — add items first");
+                        return;
+                      }
+                      setPayModalOpen(true);
+                    }}
+                    disabled={!order || displayOrder.total === 0}
+                    className="w-full bg-[#6F4E37] hover:bg-[#5A3A1A] disabled:bg-[#6F4E37]/30 disabled:cursor-not-allowed text-white font-extrabold py-3.5 rounded-2xl text-sm transition-all shadow-md shadow-[#6F4E37]/20 cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    Proceed to Payment
+                    {displayOrder.total > 0 && (
+                      <span className="ml-1 bg-white/20 px-2 py-0.5 rounded-lg text-xs font-black">
+                        ₹{Math.round(displayOrder.total)}
+                      </span>
+                    )}
+                  </button>
+                )}
               </>
             )}
           </div>

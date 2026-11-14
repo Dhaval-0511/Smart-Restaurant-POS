@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "@/lib/store";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
-import { Search, Trash2, Edit, Clock, ChefHat, CheckCircle2, Flame, Timer, Printer, Download } from "lucide-react";
+import { Search, Trash2, Edit, Clock, ChefHat, CheckCircle2, Flame, Timer, Printer, Download, Filter, X } from "lucide-react";
 import { ReceiptPrint } from "@/components/ReceiptPrint";
 // jsPDF/autoTable loaded on-demand only when PDF is downloaded
 
@@ -182,6 +182,11 @@ export default function OrdersPage() {
   const [printOrder, setPrintOrder] = useState(null);
   const PAGE_SIZE = 10;
 
+  // ── Filter & Sort state ───────────────────────────────────────
+  const [dateFilter, setDateFilter] = useState("all"); // all | today | week | month
+  const [statusFilter, setStatusFilter] = useState("all"); // all | Paid | Draft | Cancelled
+  const [sortBy, setSortBy] = useState("date_desc"); // date_desc | date_asc | name_asc | name_desc | amount_desc | amount_asc
+
   const handlePrintOrder = (ord) => {
     setPrintOrder(ord);
     setTimeout(() => {
@@ -239,8 +244,8 @@ export default function OrdersPage() {
     }
   };
 
-  // Reset to page 1 whenever search query changes
-  useEffect(() => { setPage(1); }, [q]);
+  // Reset to page 1 whenever any filter changes
+  useEffect(() => { setPage(1); }, [q, dateFilter, statusFilter, sortBy]);
 
   // Keep KDS data fresh while this page is open
   useEffect(() => {
@@ -249,20 +254,69 @@ export default function OrdersPage() {
     return () => clearInterval(id);
   }, [fetchKds]);
 
+  // ── Date range helpers ──────────────────────────────────────────
+  const getDateBounds = () => {
+    const now = new Date();
+    if (dateFilter === "today") {
+      const start = new Date(now); start.setHours(0, 0, 0, 0);
+      const end = new Date(now); end.setHours(23, 59, 59, 999);
+      return { start, end };
+    }
+    if (dateFilter === "week") {
+      const start = new Date(now);
+      const day = start.getDay();
+      start.setDate(start.getDate() - (day === 0 ? 6 : day - 1));
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(now); end.setHours(23, 59, 59, 999);
+      return { start, end };
+    }
+    if (dateFilter === "month") {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      const end = new Date(now); end.setHours(23, 59, 59, 999);
+      return { start, end };
+    }
+    return null;
+  };
+
   const filtered = orders.filter((o) => {
-    if (!q) return true;
-    const c = customers.find((x) => x.id === o.customerId);
-    const s = q.toLowerCase();
-    return (
-      c?.name?.toLowerCase().includes(s) ||
-      String(o.number || "").toLowerCase().includes(s)
-    );
+    // Text search
+    if (q) {
+      const c = customers.find((x) => x.id === o.customerId);
+      const s = q.toLowerCase();
+      if (!c?.name?.toLowerCase().includes(s) && !String(o.number || "").toLowerCase().includes(s)) return false;
+    }
+    // Status filter
+    if (statusFilter !== "all" && o.status !== statusFilter) return false;
+    // Date filter
+    const bounds = getDateBounds();
+    if (bounds && o.createdAt) {
+      const d = new Date(o.createdAt);
+      if (d < bounds.start || d > bounds.end) return false;
+    }
+    return true;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const startRow  = filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const endRow    = Math.min(page * PAGE_SIZE, filtered.length);
+  // ── Sorting ─────────────────────────────────────────────────────
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === "date_desc") return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+    if (sortBy === "date_asc")  return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+    if (sortBy === "amount_desc") return (Number(b.total) || 0) - (Number(a.total) || 0);
+    if (sortBy === "amount_asc")  return (Number(a.total) || 0) - (Number(b.total) || 0);
+    if (sortBy === "name_asc" || sortBy === "name_desc") {
+      const nameA = customers.find((x) => x.id === a.customerId)?.name || "";
+      const nameB = customers.find((x) => x.id === b.customerId)?.name || "";
+      return sortBy === "name_asc" ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+    }
+    return 0;
+  });
+
+  const hasActiveFilters = dateFilter !== "all" || statusFilter !== "all" || sortBy !== "date_desc";
+  const resetFilters = () => { setDateFilter("all"); setStatusFilter("all"); setSortBy("date_desc"); setQ(""); };
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const paginated = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const startRow  = sorted.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const endRow    = Math.min(page * PAGE_SIZE, sorted.length);
 
   const order = orders.find((o) => o.id === selected);
 
@@ -280,11 +334,11 @@ export default function OrdersPage() {
       <div className="px-6 pt-6 pb-3 shrink-0 max-w-6xl w-full mx-auto space-y-3">
 
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-extrabold text-[#6F4E37] tracking-tight">Orders</h1>
             <p className="text-xs text-[#6F4E37]/60 mt-0.5 font-medium">
-              {filtered.length} of {orders.length} orders{q ? " matching search" : ""}
+              {sorted.length} of {orders.length} orders{hasActiveFilters ? " (filtered)" : ""}
             </p>
           </div>
           <div className="relative w-64">
@@ -296,6 +350,67 @@ export default function OrdersPage() {
               className="pl-9 bg-[#FAF3E0] text-[#2B2118] border-[#6F4E37]/30 focus:border-[#6F4E37] focus:bg-white rounded-xl"
             />
           </div>
+        </div>
+
+        {/* ── Filter & Sort Bar ───────────────────────────────────── */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Date Filter */}
+          <div className="flex items-center gap-1 bg-white border border-[#6F4E37]/20 rounded-xl p-1">
+            {[
+              { key: "all", label: "All Time" },
+              { key: "today", label: "Today" },
+              { key: "week", label: "This Week" },
+              { key: "month", label: "This Month" },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setDateFilter(key)}
+                className={`px-3 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                  dateFilter === key
+                    ? "bg-[#6F4E37] text-white shadow-sm"
+                    : "text-[#6F4E37]/60 hover:text-[#6F4E37] hover:bg-[#FAF3E0]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Status Filter */}
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="text-[11px] font-bold bg-white border border-[#6F4E37]/20 rounded-xl px-3 py-2 text-[#6F4E37] cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#6F4E37]/30"
+          >
+            <option value="all">All Statuses</option>
+            <option value="Paid">Paid</option>
+            <option value="Draft">Draft</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+
+          {/* Sort By */}
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="text-[11px] font-bold bg-white border border-[#6F4E37]/20 rounded-xl px-3 py-2 text-[#6F4E37] cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#6F4E37]/30"
+          >
+            <option value="date_desc">Date: Newest First</option>
+            <option value="date_asc">Date: Oldest First</option>
+            <option value="name_asc">Customer: A → Z</option>
+            <option value="name_desc">Customer: Z → A</option>
+            <option value="amount_desc">Amount: High → Low</option>
+            <option value="amount_asc">Amount: Low → High</option>
+          </select>
+
+          {/* Reset Button — only when filters active */}
+          {hasActiveFilters && (
+            <button
+              onClick={resetFilters}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 text-[11px] font-bold hover:bg-rose-100 cursor-pointer transition"
+            >
+              <X className="w-3 h-3" /> Reset Filters
+            </button>
+          )}
         </div>
 
         {/* Legend */}
@@ -415,10 +530,10 @@ export default function OrdersPage() {
           {/* ── Pagination bar — always pinned to bottom of card ── */}
           <div className="shrink-0 flex items-center justify-between px-4 py-3 border-t border-[#6F4E37]/15 bg-[#FAF3E0]/40">
             <span className="text-xs font-semibold text-[#6F4E37]/70">
-              {filtered.length === 0
+              {sorted.length === 0
                 ? "No records"
-                : <>Showing <span className="font-extrabold text-[#6F4E37]">{startRow}–{endRow}</span> of{" "}
-                   <span className="font-extrabold text-[#6F4E37]">{filtered.length}</span> orders</>
+                : <><span className="font-extrabold text-[#6F4E37]">Showing {startRow}–{endRow}</span>{" "}of{" "}
+                   <span className="font-extrabold text-[#6F4E37]">{sorted.length}</span> orders</>
               }
             </span>
             <div className="flex items-center gap-1.5">
