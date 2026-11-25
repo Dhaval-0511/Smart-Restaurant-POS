@@ -48,10 +48,9 @@ export default function AuditLogsPage() {
         return r.json();
       })
       .then((json) => {
-        // API returns { success, data: { logs, total } } via successResponse
-        const payload = json.data ?? json;
-        setLogs(Array.isArray(payload.logs) ? payload.logs : []);
-        setTotal(typeof payload.total === "number" ? payload.total : 0);
+        // paginatedResponse shape: { success, data: [...logs], pagination: { total, page, limit } }
+        setLogs(Array.isArray(json.data) ? json.data : []);
+        setTotal(json.pagination?.total ?? 0);
       })
       .catch((err) => {
         setError(err.message);
