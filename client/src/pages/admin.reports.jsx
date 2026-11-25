@@ -107,21 +107,23 @@ export default function ReportsPage() {
   const [recipes,     setRecipes]     = useState({});
 
   useEffect(() => {
-    const token = localStorage.getItem("token") || sessionStorage.getItem("token") || "";
-    const headers = { Authorization: `Bearer ${token}` };
-    const base = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "";
-    fetch(`${base}/api/inventory/ingredients`, { headers })
+    const raw = localStorage.getItem("cafe-auth-token");
+    const token = raw ? raw.replace(/^"|"$/g, "") : null;
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const base = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+    fetch(`${base}/inventory/ingredients`, { headers })
       .then((r) => r.ok ? r.json() : [])
-      .then((d) => setIngredients(Array.isArray(d) ? d : d.ingredients || []))
+      .then((d) => setIngredients(Array.isArray(d?.data) ? d.data : Array.isArray(d) ? d : []))
       .catch(() => {});
   }, []);
 
   useEffect(() => {
-    const token = localStorage.getItem("token") || sessionStorage.getItem("token") || "";
-    const headers = { Authorization: `Bearer ${token}` };
-    const base = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "";
+    const raw = localStorage.getItem("cafe-auth-token");
+    const token = raw ? raw.replace(/^"|"$/g, "") : null;
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const base = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
     products.forEach((p) => {
-      fetch(`${base}/api/inventory/products/${p.id}/recipe`, { headers })
+      fetch(`${base}/inventory/products/${p.id}/recipe`, { headers })
         .then((r) => r.ok ? r.json() : null)
         .then((d) => {
           // API returns { success, data: RecipeItem[] }

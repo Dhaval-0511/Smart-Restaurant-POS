@@ -17,7 +17,21 @@ const PORT = process.env.PORT || 5000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-app.use(cors());
+// Bug-2 fix: Lock CORS to the configured CLIENT_URL (same origin as Socket.IO).
+// In development this defaults to localhost:5173; in production set CLIENT_URL env var.
+const allowedOrigins = [
+  process.env.CLIENT_URL || 'http://localhost:5173',
+  'http://localhost:5173',
+  'http://localhost:4173', // vite preview
+];
+app.use(cors({
+  origin: (origin, cb) => {
+    // Allow server-to-server requests (no origin) and listed origins
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    cb(new Error(`CORS: origin '${origin}' is not allowed`));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'uploads')));
 
