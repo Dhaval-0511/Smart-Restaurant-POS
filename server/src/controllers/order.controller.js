@@ -1,6 +1,5 @@
 import * as orderService from '../services/order.service.js';
 import * as kitchenService from '../services/kitchen.service.js';
-import * as productService from '../services/product.service.js';
 import { successResponse, errorResponse, paginatedResponse } from '../utils/response.util.js';
 import { sendReceiptEmail } from '../services/email.service.js';
 import { deductStockForOrder } from '../services/inventory.service.js';
@@ -12,18 +11,23 @@ export const createOrder = async (req, res) => {
   try {
     const order = await orderService.createOrder(req.body);
 
+    // Bug-4 fix: batch-fetch all products in one query instead of N individual lookups
+    const productIds = req.body.items.map((i) => i.productId).filter(Boolean);
+    const kdsProducts = await prisma.product.findMany({
+      where: { id: { in: productIds }, showInKds: true },
+      select: { id: true },
+    });
+    const kdsProductIdSet = new Set(kdsProducts.map((p) => p.id));
+
     let hasKitchenOrder = false;
     for (const item of req.body.items) {
-      if (item.productId) {
-        const product = await productService.getProductById(item.productId);
-        if (product.showInKds) {
-          await kitchenService.createKitchenOrder(
-            order.id,
-            order.orderItems.find(oi => oi.productId === item.productId)?.id,
-            item.productId
-          );
-          hasKitchenOrder = true;
-        }
+      if (item.productId && kdsProductIdSet.has(item.productId)) {
+        await kitchenService.createKitchenOrder(
+          order.id,
+          order.orderItems.find(oi => oi.productId === item.productId)?.id,
+          item.productId
+        );
+        hasKitchenOrder = true;
       }
     }
 
@@ -130,6 +134,14 @@ export const addItemToOrder = async (req, res) => {
       ? req.body.items
       : [{ productId: req.body.productId, quantity: req.body.quantity ?? 1 }];
 
+    // Batch-fetch which of the items need KDS tickets (single query, not N queries)
+    const itemProductIds = items.map((i) => i.productId).filter(Boolean);
+    const kdsItemProducts = await prisma.product.findMany({
+      where: { id: { in: itemProductIds }, showInKds: true },
+      select: { id: true },
+    });
+    const kdsItemSet = new Set(kdsItemProducts.map((p) => p.id));
+
     // Add each item and collect results
     const addedItems = [];
     for (const item of items) {
@@ -137,18 +149,13 @@ export const addItemToOrder = async (req, res) => {
       addedItems.push(result);
 
       // Create a KitchenOrder ticket for this item if the product is shown on KDS
-      try {
-        const product = await productService.getProductById(item.productId);
-        if (product.showInKds) {
-          await kitchenService.createKitchenOrder(
-            id,
-            result.orderItem.id,
-            item.productId
-          );
+      if (item.productId && kdsItemSet.has(item.productId)) {
+        try {
+          await kitchenService.createKitchenOrder(id, result.orderItem.id, item.productId);
+        } catch (kitchenErr) {
+          // Non-fatal: log but don't fail the whole request
+          console.error('Failed to create KDS ticket for appended item:', kitchenErr.message);
         }
-      } catch (kitchenErr) {
-        // Non-fatal: log but don't fail the whole request
-        console.error('Failed to create KDS ticket for appended item:', kitchenErr.message);
       }
     }
 

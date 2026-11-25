@@ -1,6 +1,6 @@
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useStore } from "@/lib/store";
-import { Coffee, Package, Tags, CreditCard, Ticket, BookOpen, UserCog, Monitor, BarChart3, LogOut, ArrowLeft, Warehouse, UserCircle, Settings } from "lucide-react";
+import { Coffee, Package, Tags, CreditCard, Ticket, BookOpen, UserCog, Monitor, BarChart3, LogOut, ArrowLeft, Warehouse, UserCircle, Settings, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const items = [
@@ -12,6 +12,7 @@ const items = [
   { to: "/admin/booking", label: "Table and floor management", icon: BookOpen },
   { to: "/admin/users", label: "User / Employee", icon: UserCog },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
+  { to: "/admin/audit-logs", label: "Audit Logs", icon: ShieldCheck },
 ];
 
 export function AdminShell({ children, title }) {
@@ -24,10 +25,14 @@ export function AdminShell({ children, title }) {
   // Role-based sidebar menu items filtering
   const navItems = items.filter((it) => {
     if (user?.role === "INVENTORY_MANAGER") {
-      // Inventory manager sees Products, Categories, and Inventory
+      // Inventory manager sees Products, Categories, and Inventory only
       return ["/admin/products", "/admin/categories", "/admin/inventory"].includes(it.to);
     }
-    // SUPER_ADMIN, BRANCH_MANAGER, ADMIN see all
+    if (it.to === "/admin/audit-logs") {
+      // Audit Logs only visible to SUPER_ADMIN and BRANCH_MANAGER
+      return ["SUPER_ADMIN", "BRANCH_MANAGER"].includes(user?.role);
+    }
+    // SUPER_ADMIN, BRANCH_MANAGER, ADMIN see all other items
     return true;
   });
 

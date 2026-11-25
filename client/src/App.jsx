@@ -26,6 +26,7 @@ const AdminBookingPage = lazy(() => import('./pages/admin.booking.jsx'));
 const AdminUsersPage = lazy(() => import('./pages/admin.users.jsx'));
 const AdminReportsPage = lazy(() => import('./pages/admin.reports.jsx'));
 const AdminInventoryPage = lazy(() => import('./pages/admin.inventory.jsx'));
+const AdminAuditLogsPage = lazy(() => import('./pages/admin.audit-logs.jsx'));
 const ProfilePage = lazy(() => import('./pages/profile.jsx'));
 const SettingsPage = lazy(() => import('./pages/settings.jsx'));
 
@@ -109,6 +110,7 @@ function AppInner() {
             <Route path="users" element={<AdminUsersPage />} />
             <Route path="reports" element={<AdminReportsPage />} />
             <Route path="inventory" element={<AdminInventoryPage />} />
+            <Route path="audit-logs" element={<AdminAuditLogsPage />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
