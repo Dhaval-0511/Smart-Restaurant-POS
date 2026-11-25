@@ -35,4 +35,8 @@ router.get('/pending-users', ...adminOnly, authController.getPendingUsersHandler
 router.patch('/approve-user/:id', ...adminOnly, authController.approveUserHandler);
 router.patch('/reject-user/:id', ...adminOnly, authController.rejectUserHandler);
 
+// Audit logs — SUPER_ADMIN and BRANCH_MANAGER only (B-3, X-4)
+const superAdminOnly = [authMiddleware, authorizeRoles('SUPER_ADMIN', 'BRANCH_MANAGER')];
+router.get('/audit-logs', ...superAdminOnly, authController.getAuditLogsHandler);
+
 export default router;

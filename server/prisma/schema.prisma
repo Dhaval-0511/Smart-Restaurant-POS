@@ -38,6 +38,8 @@ model AuditLog {
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId, createdAt])
+  @@index([action])
   @@map("audit_logs")
 }
 
@@ -194,6 +196,9 @@ model Order {
   session          Session        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   table            Table?         @relation(fields: [tableId], references: [id])
 
+  @@index([sessionId])
+  @@index([status, createdAt])
+  @@index([employeeId])
   @@map("orders")
 }
 
@@ -230,6 +235,7 @@ model KitchenOrder {
   orderItem       OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   product         Product       @relation(fields: [productId], references: [id])
 
+  @@index([orderId, status])
   @@map("kitchen_orders")
 }
 
@@ -343,6 +349,7 @@ model StockLedger {
   ingredient     Ingredient        @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
   recordedBy     User?             @relation(fields: [recordedById], references: [id])
 
+  @@index([ingredientId, createdAt])
   @@map("stock_ledgers")
 }
 
