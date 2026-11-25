@@ -66,6 +66,16 @@ function AppInner() {
     return cleanup;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // F-7: Listen for forced logout events fired by api.js and store.js
+  // Using a custom event means React Router handles navigation (no hard page reload)
+  useEffect(() => {
+    const handler = (e) => {
+      navigate(e.detail?.redirectTo || '/login', { replace: true });
+    };
+    window.addEventListener('force-logout', handler);
+    return () => window.removeEventListener('force-logout', handler);
+  }, [navigate]);
+
   return (
     <>
       <Suspense fallback={<PageLoader />}>

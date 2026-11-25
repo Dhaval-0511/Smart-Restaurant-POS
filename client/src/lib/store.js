@@ -157,6 +157,7 @@ export const useStore = create(
       isTakeaway: false,
       loading: false,
       bootstrapped: false,
+      bootstrapedAt: null,   // F-4: timestamp for 5-min TTL re-fetch
       // ── Low-stock alerts (populated by socket events) ───────
       lowStockAlerts: [],
 
@@ -166,8 +167,10 @@ export const useStore = create(
       clearLowStockAlerts: () => set({ lowStockAlerts: [] }),
 
       // ── Bootstrap: load all reference data from DB ─────────
+      // F-4: Re-fetches if data is older than 5 minutes (stale TTL)
       bootstrap: async () => {
-        if (get().bootstrapped) return;
+        const isStale = !get().bootstrapedAt || (Date.now() - get().bootstrapedAt) > 5 * 60 * 1000;
+        if (get().bootstrapped && !isStale) return;
         set({ loading: true });
         try {
           const [cats, prods, floors, tables, payments, coupons, customers, users] =
@@ -194,6 +197,7 @@ export const useStore = create(
               ? users.map(normaliseUser)
               : (users.users ?? []).map(normaliseUser),
             bootstrapped: true,
+            bootstrapedAt: Date.now(),  // F-4: timestamp for 5-min TTL
             loading: false,
           });
 
@@ -287,9 +291,10 @@ export const useStore = create(
                 currentSessionId: null,
                 authToken: null,
                 bootstrapped: false,
+      bootstrapedAt: null,   // F-4: timestamp for 5-min TTL re-fetch
               });
               toast.error("Your account has been deactivated by an administrator. You have been logged out.", { duration: 6000 });
-              setTimeout(() => { window.location.href = "/auth"; }, 1500);
+              setTimeout(() => { window.dispatchEvent(new CustomEvent('force-logout', { detail: { redirectTo: '/login' } })); }, 1500);
             }
           });
 
@@ -310,7 +315,7 @@ export const useStore = create(
               currentSessionId: null, authToken: null, bootstrapped: false,
             });
             toast.error(message || "You were logged out because this account logged in from another browser or device.", { duration: 7000 });
-            setTimeout(() => { window.location.href = "/login"; }, 1800);
+            setTimeout(() => { window.dispatchEvent(new CustomEvent('force-logout', { detail: { redirectTo: '/login' } })); }, 1800);
           });
         } catch (e) {
           console.error("Bootstrap error:", e);
@@ -358,6 +363,7 @@ export const useStore = create(
           currentSessionId: null,
           authToken: null,
           bootstrapped: false,
+      bootstrapedAt: null,   // F-4: timestamp for 5-min TTL re-fetch
         });
       },
 
@@ -494,6 +500,7 @@ export const useStore = create(
           orderType,
           lines: [], subtotal: 0, tax: 0,
           discountTotal: 0, total: 0,
+          isLocal: true,   // F-2: marks this as a local draft (not yet in DB)
           status: "Draft",
           createdAt: Date.now(),
           employeeId: get().currentUserId ?? undefined,
@@ -647,20 +654,22 @@ export const useStore = create(
         }
 
         const discountTotal = productDiscountTotal + orderDiscount;
-        const total = subtotal + tax - discountTotal;
+        // F-3: round all money values to 2 decimal places to prevent float drift
+        const r2 = (n) => Math.round(n * 100) / 100;
+        const total = r2(r2(subtotal) + r2(tax) - r2(discountTotal));
         set((st) => ({
           orders: st.orders.map((x) =>
             x.id === orderId
               ? {
                   ...x,
                   lines: newLines,
-                  subtotal,
-                  tax: Math.round(tax * 100) / 100,
-                  discountTotal: Math.round(discountTotal * 100) / 100,
+                  subtotal:      r2(subtotal),
+                  tax:           r2(tax),
+                  discountTotal: r2(discountTotal),
                   discountLabel,
                   appliedCoupon: couponCode || null,
                   appliedPromoId,
-                  total: Math.round(total * 100) / 100,
+                  total,
                 }
               : x
           ),
@@ -1002,16 +1011,17 @@ export const useStore = create(
     }),
     {
       name: "cafe-pos-v3",  // bumped version — clears old incompatible cache
+      // A-5: Only persist auth + lightweight UI state.
+      // orders/sessions/kds are excluded: they're large, go stale fast, and
+      // exceed the 5MB localStorage cap under heavy use.
       partialize: (s) => ({
-        currentUserId: s.currentUserId,
-        currentTableId: s.currentTableId,
-        currentSessionId: s.currentSessionId,
+        currentUserId:     s.currentUserId,
+        currentTableId:    s.currentTableId,
+        currentSessionId:  s.currentSessionId,
         lastClosedSession: s.lastClosedSession,
-        authToken: s.authToken,
-        orders: s.orders,
-        sessions: s.sessions,
-        kds: s.kds,
-        draftOrderId: s.draftOrderId,
+        authToken:         s.authToken,
+        draftOrderId:      s.draftOrderId,
+        bootstrapedAt:     s.bootstrapedAt,
       }),
     },
   )
