@@ -24,7 +24,7 @@ app.use(express.static(path.join(__dirname, 'uploads')));
 app.use('/api', routes);
 
 app.get('/', (req, res) => {
-  res.json({ message: 'Odoo Cafe POS API is running!' });
+  res.json({ message: 'Smart Cafe POS API is running!' });
 });
 
 app.use(errorMiddleware);

@@ -35,15 +35,12 @@ async function request(method, path, body) {
       if (!isAuthRoute && typeof window !== "undefined") {
         const publicPaths = ["/", "/register", "/forgot-password", "/reset-password"];
         if (!publicPaths.includes(window.location.pathname)) {
-          // Show a contextual message for session displacement vs regular expiry
+          // F-7: Use custom event so React Router handles navigation (no hard reload)
           const isDisplaced = json.message?.includes('SESSION_DISPLACED');
-          if (isDisplaced) {
-            // Let the socket handler show the toast + redirect (already handled)
-            // If socket didn't fire (e.g. offline), still redirect
-            setTimeout(() => { window.location.href = "/login"; }, 300);
-          } else {
-            window.location.href = "/";
-          }
+          const redirectTo = isDisplaced ? '/login' : '/login';
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('force-logout', { detail: { redirectTo } }));
+          }, 300);
         }
       }
     }
@@ -186,3 +183,14 @@ export function saveToken(token) {
 export function clearToken() {
   localStorage.removeItem("cafe-auth-token");
 }
+
+// ── Reports (server-side SQL aggregation) ─────────────────
+export const reportsApi = {
+  getSummary: (from, to) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to)   params.set('to',   to);
+    const qs = params.toString();
+    return request('GET', `/reports/summary${qs ? `?${qs}` : ''}`);
+  },
+};

@@ -4,6 +4,7 @@ import {
   verifyPassword,
 } from '../services/auth.service.js';
 import { successResponse, errorResponse, paginatedResponse } from '../utils/response.util.js';
+import { getAuditLogs } from '../services/audit.service.js';
 import prisma from '../config/database.js';
 
 export const register = async (req, res) => {
@@ -132,8 +133,19 @@ export const removeEmployee = async (req, res) => {
   try {
     const { id } = req.params;
     const user = await deleteUser(id);
-    return successResponse(res, user, 'User archived successfully');
+    return successResponse(res, user, 'User deactivated successfully');
   } catch (error) {
     return errorResponse(res, error.message, 404, error);
+  }
+};
+
+// ── B-3, X-4: Audit log endpoint (SUPER_ADMIN / BRANCH_MANAGER only) ─────────
+export const getAuditLogsHandler = async (req, res) => {
+  try {
+    const { limit = 50, page = 1 } = req.query;
+    const { logs, total } = await getAuditLogs(Number(limit), Number(page));
+    return paginatedResponse(res, logs, total, Number(page), Number(limit), 'Audit logs retrieved');
+  } catch (error) {
+    return errorResponse(res, error.message, 500, error);
   }
 };

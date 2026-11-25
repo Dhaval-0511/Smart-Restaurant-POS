@@ -3,6 +3,16 @@ import { errorResponse } from '../utils/response.util.js';
 import prisma from '../config/database.js';
 import { userActiveSessions } from '../services/auth.service.js';
 
+// ── 60-second in-memory cache for user status checks ─────────────────────────
+// Avoids a DB hit on EVERY authenticated request; still picks up deactivation
+// within 60 seconds (acceptable for the POS use-case).
+const _userStatusCache = new Map(); // userId → { user, cachedAt }
+const _CACHE_TTL_MS = 60 * 1000;
+
+export const invalidateUserCache = (userId) => {
+  _userStatusCache.delete(userId);
+};
+
 // Roles that have admin-level system access
 export const ADMIN_ROLES = ['SUPER_ADMIN', 'BRANCH_MANAGER', 'ADMIN'];
 // Roles that can access POS terminal
@@ -29,16 +39,25 @@ export const authMiddleware = async (req, res, next) => {
       return errorResponse(res, 'Invalid or expired token', 401);
     }
 
-    // ── Check if user is deactivated (real-time block) ─────────────────────
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      select: { id: true, name: true, email: true, role: true, isArchived: true, status: true },
-    });
+    // ── Check if user is deactivated (TTL-cached to reduce DB hits) ─────────
+    let user;
+    const cached = _userStatusCache.get(decoded.userId);
+    if (cached && (Date.now() - cached.cachedAt) < _CACHE_TTL_MS) {
+      user = cached.user;
+    } else {
+      user = await prisma.user.findUnique({
+        where: { id: decoded.userId },
+        select: { id: true, name: true, email: true, role: true, isArchived: true, status: true },
+      });
+      if (user) _userStatusCache.set(decoded.userId, { user, cachedAt: Date.now() });
+    }
 
     if (!user) {
       return errorResponse(res, 'Account not found', 401);
     }
     if (user.isArchived) {
+      // Immediately evict cache so next request is fresh after re-activation
+      _userStatusCache.delete(decoded.userId);
       return errorResponse(res, 'Your account has been deactivated. Please contact an administrator.', 401);
     }
 

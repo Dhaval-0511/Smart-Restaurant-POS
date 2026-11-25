@@ -1,0 +1,46 @@
+// A-3: Extracted pure utility — Smart emoji mapper based on product name keywords
+// Originally inline in pos.index.jsx (lines 34-77)
+export const getProductEmoji = (name = "") => {
+  const n = name.toLowerCase();
+  if (n.includes("espresso")) return "☕";
+  if (n.includes("cappuccino")) return "🍵";
+  if (n.includes("latte")) return "🥛";
+  if (n.includes("americano")) return "☕";
+  if (n.includes("cold brew") || n.includes("cold coffee")) return "🧋";
+  if (n.includes("frappuccino") || n.includes("frappe")) return "🥤";
+  if (n.includes("iced")) return "🧊";
+  if (n.includes("mocha")) return "☕";
+  if (n.includes("chai") || n.includes("tea")) return "🫖";
+  if (n.includes("green tea")) return "🍵";
+  if (n.includes("peach")) return "🍑";
+  if (n.includes("smoothie") || n.includes("shake")) return "🥤";
+  if (n.includes("juice")) return "🍹";
+  if (n.includes("lemonade")) return "🍋";
+  if (n.includes("croissant")) return "🥐";
+  if (n.includes("muffin")) return "🧁";
+  if (n.includes("cheesecake") || n.includes("cake")) return "🍰";
+  if (n.includes("banana bread") || n.includes("bread")) return "🍞";
+  if (n.includes("cookie") || n.includes("biscuit")) return "🍪";
+  if (n.includes("brownie")) return "🍫";
+  if (n.includes("donut") || n.includes("doughnut")) return "🍩";
+  if (n.includes("waffle")) return "🧇";
+  if (n.includes("pancake")) return "🥞";
+  if (n.includes("sandwich")) return "🥪";
+  if (n.includes("wrap")) return "🌯";
+  if (n.includes("burger")) return "🍔";
+  if (n.includes("pizza")) return "🍕";
+  if (n.includes("pasta") || n.includes("noodle")) return "🍝";
+  if (n.includes("salad")) return "🥗";
+  if (n.includes("soup")) return "🍜";
+  if (n.includes("chicken")) return "🍗";
+  if (n.includes("paneer")) return "🧀";
+  if (n.includes("egg")) return "🍳";
+  if (n.includes("rice")) return "🍚";
+  if (n.includes("biryani")) return "🍛";
+  if (n.includes("ice cream") || n.includes("gelato")) return "🍨";
+  if (n.includes("chocolate")) return "🍫";
+  if (n.includes("fruit") || n.includes("berry") || n.includes("blueberry")) return "🫐";
+  if (n.includes("water")) return "💧";
+  if (n.includes("coffee")) return "☕";
+  return "🍽️";
+};

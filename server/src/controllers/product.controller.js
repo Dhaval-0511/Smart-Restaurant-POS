@@ -1,9 +1,11 @@
 import * as productService from '../services/product.service.js';
 import { successResponse, errorResponse, paginatedResponse } from '../utils/response.util.js';
+import { logAuditAction } from '../services/audit.service.js';
 
 export const createProduct = async (req, res) => {
   try {
     const product = await productService.createProduct(req.body);
+    logAuditAction(req.userId, 'PRODUCT_CREATED', { productId: product.id, name: product.name }, req);
     return successResponse(res, product, 'Product created successfully', 201);
   } catch (error) {
     return errorResponse(res, error.message, 400, error);
@@ -43,6 +45,7 @@ export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
     const product = await productService.updateProduct(id, req.body);
+    logAuditAction(req.userId, 'PRODUCT_UPDATED', { productId: id, changes: Object.keys(req.body) }, req);
     return successResponse(res, product, 'Product updated successfully');
   } catch (error) {
     return errorResponse(res, error.message, 400, error);
@@ -53,6 +56,7 @@ export const deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
     const product = await productService.deleteProduct(id);
+    logAuditAction(req.userId, 'PRODUCT_DELETED', { productId: id, name: product.name }, req);
     return successResponse(res, product, 'Product deleted successfully');
   } catch (error) {
     return errorResponse(res, error.message, 404, error);

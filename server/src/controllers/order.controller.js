@@ -4,6 +4,7 @@ import * as productService from '../services/product.service.js';
 import { successResponse, errorResponse, paginatedResponse } from '../utils/response.util.js';
 import { sendReceiptEmail } from '../services/email.service.js';
 import { deductStockForOrder } from '../services/inventory.service.js';
+import { logAuditAction } from '../services/audit.service.js';
 import prisma from '../config/database.js';
 import { emitEvent } from '../config/socket.js';
 
@@ -70,6 +71,9 @@ export const updateOrderStatus = async (req, res) => {
         console.error('Stock deduction failed (non-blocking):', err)
       );
 
+      // X-3: Log order payment as audit event
+      logAuditAction(req.userId, 'ORDER_PAID', { orderId: id, paymentMethod }, req);
+
       prisma.order.findUnique({
         where: { id },
         include: {
@@ -106,6 +110,10 @@ export const updateOrderStatus = async (req, res) => {
           console.log(`Auto-receipt sent to ${fullOrder.customer.email}`);
         }
       }).catch(err => console.error("Auto email failed:", err));
+    }
+
+    if (status === 'CANCELLED') {
+      logAuditAction(req.userId, 'ORDER_CANCELLED', { orderId: id }, req);
     }
 
     return successResponse(res, order, 'Order status updated successfully');
