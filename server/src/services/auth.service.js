@@ -6,6 +6,7 @@ import { logAuditAction } from './audit.service.js';
 import { emitEvent } from '../config/socket.js';
 import { env } from '../config/env.js';
 import crypto from 'crypto';
+import { invalidateUserCache } from '../middlewares/auth.middleware.js';
 
 // Convenience export so controller can verify currentPassword
 export const verifyPassword = comparePassword;
@@ -215,6 +216,9 @@ export const updateUser = async (userId, data) => {
     emitEvent('user:deactivated', { userId });
   }
 
+  // Evict from auth middleware cache so deactivation takes effect immediately
+  invalidateUserCache(userId);
+
   return updated;
 };
 
@@ -237,6 +241,9 @@ export const deleteUser = async (userId) => {
 
   // Broadcast forced logout
   emitEvent('user:deactivated', { userId });
+
+  // Evict from auth middleware cache so deactivation takes effect immediately
+  invalidateUserCache(userId);
 
   return updated;
 };

@@ -38,13 +38,6 @@ export const deleteIngredient = async (id) => {
 
 // ── Low Stock ─────────────────────────────────────────────────────────────────
 
-export const getLowStockIngredients = async () => {
-  return prisma.ingredient.findMany({
-    where: { currentStock: { lte: prisma.ingredient.fields.minimumStock } },
-    orderBy: { currentStock: 'asc' },
-  });
-};
-
 // Fetch low stock using raw comparison (Prisma doesn't support field-to-field WHERE easily)
 export const getLowStockList = async () => {
   return prisma.$queryRaw`

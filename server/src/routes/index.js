@@ -1,4 +1,5 @@
 import express from 'express';
+import prisma from '../config/database.js';
 import authRoutes from './auth.routes.js';
 import categoryRoutes from './category.routes.js';
 import productRoutes from './product.routes.js';
@@ -13,6 +14,25 @@ import paymentMethodRoutes from './payment-method.routes.js';
 import inventoryRoutes from './inventory.routes.js';
 
 const router = express.Router();
+
+// ── B-6: Health check endpoint ─────────────────────────────────────────────
+router.get('/health', async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return res.json({
+      status:    'ok',
+      db:        'connected',
+      uptime:    Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    return res.status(503).json({
+      status:    'error',
+      db:        'unreachable',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
 
 router.use('/auth', authRoutes);
 router.use('/categories', categoryRoutes);

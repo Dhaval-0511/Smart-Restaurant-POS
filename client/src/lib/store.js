@@ -796,23 +796,34 @@ export const useStore = create(
       payOrder: async (orderId, paymentMethodId, amountPaid, ref) => {
         const o = get().orders.find((x) => x.id === orderId);
         if (!o) return;
-        // Mark paid locally immediately
+        // Mark paid locally immediately (optimistic update)
         get().updateOrder(orderId, { status: "Paid", paymentMethodId, amountPaid, paymentRef: ref });
         try {
-          const isDbOrder = orderId.length > 15; // UUID is 36 chars, local uid() is 8 chars
-          if (isDbOrder) {
-            // PUT /orders/:id/status
+          // A-7 fix: determine if this order already exists in DB or is a local draft
+          // isLocal flag is set on drafts created by createDraftOrder; fall back to length heuristic
+          const isLocal = o.isLocal ?? (orderId.length <= 15);
+          if (!isLocal) {
+            // ── Existing DB order: just update its status + payment details ──
             await orderApi.update(orderId, { status: "PAID", paymentMethod: paymentMethodId, paymentReference: ref });
           } else {
+            // ── Local draft: create on server as DRAFT, then mark PAID ───────
             const sessionId = o.sessionId ?? get().currentSessionId;
             if (sessionId) {
-              // Create new order directly with PAID status
-              await orderApi.create({
+              const created = await orderApi.create({
                 sessionId,
-                tableId: o.tableId,
+                tableId:    o.tableId,
                 employeeId: o.employeeId ?? get().currentUserId,
+                orderType:  o.orderType ?? 'DINE_IN',
                 items: o.lines.map((l) => ({ productId: l.productId, quantity: l.qty, unitPrice: l.unitPrice })),
               });
+              // Now mark it PAID with payment details so they are persisted
+              if (created?.id) {
+                await orderApi.update(created.id, {
+                  status:           "PAID",
+                  paymentMethod:    paymentMethodId,
+                  paymentReference: ref,
+                });
+              }
             }
           }
         } catch (err) {
