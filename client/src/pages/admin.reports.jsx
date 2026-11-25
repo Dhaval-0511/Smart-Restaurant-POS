@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/AdminShell";
 import { useStore } from "@/lib/store";
+import { reportsApi } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -81,6 +82,26 @@ export default function ReportsPage() {
   const [expandDeadstock, setExpandDeadstock] = useState(false);
   const [expandReorder,   setExpandReorder]   = useState(true);
 
+  // ── A-1: Server-side KPI summary (overrides local useMemo numbers) ──────────
+  const [serverSummary, setServerSummary] = useState(null);
+  useEffect(() => {
+    const now   = new Date();
+    const toISO = now.toISOString();
+    let fromISO;
+    if (interval_ === "today") {
+      const d = new Date(now); d.setHours(0,0,0,0); fromISO = d.toISOString();
+    } else if (interval_ === "week") {
+      const d = new Date(now); d.setDate(d.getDate() - 7);  fromISO = d.toISOString();
+    } else if (interval_ === "month") {
+      const d = new Date(now); d.setDate(d.getDate() - 30); fromISO = d.toISOString();
+    } else {
+      fromISO = new Date(0).toISOString();
+    }
+    reportsApi.getSummary(fromISO, toISO)
+      .then((data) => setServerSummary(data))
+      .catch(() => {}); // silent — falls back to local useMemo numbers
+  }, [interval_]);
+
   // ── Ingredients & Recipes from API ─────────────────────────────────────────
   const [ingredients, setIngredients] = useState([]);
   const [recipes,     setRecipes]     = useState({});
@@ -135,10 +156,13 @@ export default function ReportsPage() {
     [paidOrders, compareFrom, compareTo, from]);
 
   // ── KPIs ────────────────────────────────────────────────────────────────────
-  const revenue  = filtered.reduce((s, o) => s + o.total, 0);
+  // A-1: Prefer server-side numbers (accurate SQL); fall back to local useMemo
+  const revenue  = serverSummary ? serverSummary.totalRevenue  : filtered.reduce((s, o) => s + o.total, 0);
   const prevRev  = compared.reduce((s, o) => s + o.total, 0);
   const revTrend = pct(revenue, prevRev);
-  const avgOrder = filtered.length ? revenue / filtered.length : 0;
+  const avgOrder = serverSummary
+    ? serverSummary.avgOrderValue
+    : (filtered.length ? revenue / filtered.length : 0);
   const prevAvg  = compared.length ? prevRev / compared.length : 0;
   const avgTrend = pct(avgOrder, prevAvg);
 

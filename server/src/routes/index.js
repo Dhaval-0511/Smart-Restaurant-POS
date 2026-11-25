@@ -12,6 +12,8 @@ import couponRoutes from './coupon.routes.js';
 import customerRoutes from './customer.routes.js';
 import paymentMethodRoutes from './payment-method.routes.js';
 import inventoryRoutes from './inventory.routes.js';
+import reportsRoutes from './reports.routes.js';
+import { authMiddleware, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
@@ -46,5 +48,12 @@ router.use('/coupons', couponRoutes);
 router.use('/customers', customerRoutes);
 router.use('/payment-methods', paymentMethodRoutes);
 router.use('/inventory', inventoryRoutes);
+// A-1: Server-side reports — protected, admin/manager only
+router.use(
+  '/reports',
+  authMiddleware,
+  authorizeRoles('SUPER_ADMIN', 'BRANCH_MANAGER', 'ADMIN'),
+  reportsRoutes
+);
 
 export default router;
