@@ -2,7 +2,6 @@ import prisma from '../config/database.js';
 import { generateOrderNumber } from '../utils/order.util.js';
 
 export const createOrder = async (data) => {
-  console.log("createOrder incoming data:", JSON.stringify(data, null, 2));
   const { sessionId, tableId, customerId, items, orderType = 'DINE_IN' } = data;
   let { employeeId } = data;
 

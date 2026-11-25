@@ -132,7 +132,7 @@ export const removeEmployee = async (req, res) => {
   try {
     const { id } = req.params;
     const user = await deleteUser(id);
-    return successResponse(res, user, 'User archived successfully');
+    return successResponse(res, user, 'User deactivated successfully');
   } catch (error) {
     return errorResponse(res, error.message, 404, error);
   }

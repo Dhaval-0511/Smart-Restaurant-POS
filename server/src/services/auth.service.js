@@ -219,8 +219,24 @@ export const updateUser = async (userId, data) => {
 };
 
 export const deleteUser = async (userId) => {
-  return await prisma.user.delete({
+  // Soft delete — archive user instead of hard delete so order history is preserved
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new Error('User not found');
+
+  const updated = await prisma.user.update({
     where: { id: userId },
+    data: { isArchived: true },
     select: { id: true, name: true, email: true },
   });
+
+  // Close any open POS sessions for this user
+  prisma.session.updateMany({
+    where: { userId, status: 'OPEN' },
+    data: { status: 'CLOSED', closedAt: new Date() },
+  }).catch((err) => console.error('[auth] session close on soft-delete failed:', err));
+
+  // Broadcast forced logout
+  emitEvent('user:deactivated', { userId });
+
+  return updated;
 };

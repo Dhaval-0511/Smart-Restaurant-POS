@@ -22,9 +22,7 @@ export const loginValidator = z.object({
 
 export const updateUserValidator = z.object({
   name: z.string().min(2).optional(),
-  email: z.string().email().optional(),
   currentPassword: z.string().optional(),
-  password: z.string().min(6).optional(),
-  role: z.enum(['ADMIN', 'EMPLOYEE']).optional(),
-  isArchived: z.boolean().optional(),
+  password: z.string().min(8, 'Password must be at least 8 characters').optional(),
+  // email, role, isArchived are admin-only — managed via /employees/:id only
 });

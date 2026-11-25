@@ -8,8 +8,8 @@ const router = express.Router();
 
 router.post('/', authMiddleware, validateRequest(createProductValidator), productController.createProduct);
 router.get('/kds/items', productController.getKdsProducts);
-router.get('/', productController.getAllProducts);
-router.get('/:id', productController.getProductById);
+router.get('/', authMiddleware, productController.getAllProducts);
+router.get('/:id', authMiddleware, productController.getProductById);
 router.put('/:id', authMiddleware, validateRequest(updateProductValidator), productController.updateProduct);
 router.delete('/:id', authMiddleware, productController.deleteProduct);
 
